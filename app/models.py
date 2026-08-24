@@ -1,0 +1,106 @@
+from datetime import datetime, timezone
+from typing import Any
+from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum
+from sqlalchemy.orm import Mapped, mapped_column
+from app.database import Base
+import enum
+
+
+class LeadStatus(str, enum.Enum):
+    new = "new"
+    contacted = "contacted"
+    qualified = "qualified"
+    converted = "converted"
+    lost = "lost"
+
+
+class LeadType(str, enum.Enum):
+    vehicle = "vehicle"
+    business = "business"
+
+
+class Lead(Base):
+    __tablename__ = "leads"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    type: Mapped[LeadType] = mapped_column(SAEnum(LeadType), default=LeadType.vehicle)
+    status: Mapped[LeadStatus] = mapped_column(SAEnum(LeadStatus), default=LeadStatus.new)
+
+    # Contact info
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(30))
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Vehicle lead fields
+    immat: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    naissance: Mapped[str | None] = mapped_column(String(10), nullable=True)  # MM/YYYY
+    permis: Mapped[str | None] = mapped_column(String(10), nullable=True)    # MM/YYYY
+
+    # Business lead fields
+    siret: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    activite: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+    # Meta
+    source: Mapped[str | None] = mapped_column(String(120), nullable=True)  # page URL or campaign
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class GuideStatus(str, enum.Enum):
+    brouillon = "Brouillon"
+    publie = "Publié"
+
+
+class Guide(Base):
+    __tablename__ = "guides"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    title: Mapped[str] = mapped_column(String(300))
+    slug: Mapped[str] = mapped_column(String(300), unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(100))
+    status: Mapped[GuideStatus] = mapped_column(SAEnum(GuideStatus), default=GuideStatus.brouillon)
+
+    # Article hero fields
+    category_href: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    intro: Mapped[str | None] = mapped_column(Text, nullable=True)
+    author_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    author_avatar: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    editor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    reviewer_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    updated_date: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    reading_time: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    image_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Content blocks — stored as JSON array
+    blocks: Mapped[Any] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class Contact(Base):
+    __tablename__ = "contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    subject: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    message: Mapped[str] = mapped_column(Text)
+    read: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
