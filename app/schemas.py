@@ -28,8 +28,16 @@ class LeadCreate(BaseModel):
 
 class LeadUpdate(BaseModel):
     status: LeadStatus | None = None
-    notes: str | None = None
+    name: str | None = None
+    phone: str | None = None
     email: str | None = None
+    type: LeadType | None = None
+    immat: str | None = None
+    naissance: str | None = None
+    permis: str | None = None
+    siret: str | None = None
+    activite: str | None = None
+    notes: str | None = None
 
 
 class LeadOut(BaseModel):
