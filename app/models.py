@@ -15,15 +15,24 @@ class LeadStatus(str, enum.Enum):
 
 
 class LeadType(str, enum.Enum):
-    vehicle = "vehicle"
-    business = "business"
+    """A lead's category — matches the guide categories used across the site
+    (see the CRM's lib/categories.ts, which is the source of truth for the
+    exact wording)."""
+    flotte_transport = "Assurance Flotte & Transport"
+    taxi = "Assurance Taxi"
+    ambulance = "Assurance Ambulance"
+    vtc = "Assurance VTC"
+    pro_auto = "Assurance Pro de l'auto"
+    construction = "Assurance Construction"
+    immobilier = "Assurance Immobilier"
+    general = "Assurance Général"
 
 
 class Lead(Base):
     __tablename__ = "leads"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    type: Mapped[LeadType] = mapped_column(SAEnum(LeadType), default=LeadType.vehicle)
+    type: Mapped[LeadType] = mapped_column(SAEnum(LeadType))
     status: Mapped[LeadStatus] = mapped_column(SAEnum(LeadStatus), default=LeadStatus.new)
 
     # Contact info
@@ -81,6 +90,22 @@ class Guide(Base):
     # Content blocks — stored as JSON array
     blocks: Mapped[Any] = mapped_column(JSON, nullable=True)
 
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        onupdate=lambda: datetime.now(timezone.utc),
+    )
+
+
+class Author(Base):
+    __tablename__ = "authors"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    avatar_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

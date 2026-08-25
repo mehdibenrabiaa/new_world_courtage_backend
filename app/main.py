@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text, inspect
 from app.config import settings
 from app.database import Base, engine
-from app.routers import leads, contacts, guides
+from app.routers import leads, contacts, guides, authors, media
 
 # Create tables on startup
 Base.metadata.create_all(bind=engine)
@@ -17,8 +17,9 @@ with engine.connect() as _conn:
         _conn.execute(text("ALTER TABLE guides ADD COLUMN image_url TEXT"))
         _conn.commit()
 
-# Ensure upload directory exists
+# Ensure upload directories exist
 os.makedirs("uploads/guides", exist_ok=True)
+os.makedirs("uploads/authors", exist_ok=True)
 
 app = FastAPI(
     title="New World Courtage API",
@@ -37,6 +38,8 @@ app.add_middleware(
 app.include_router(leads.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(guides.router, prefix="/api")
+app.include_router(authors.router, prefix="/api")
+app.include_router(media.router, prefix="/api")
 
 app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 

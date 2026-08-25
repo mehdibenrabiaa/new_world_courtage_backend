@@ -7,7 +7,7 @@ from app.models import LeadStatus, LeadType, GuideStatus
 # ── Leads ─────────────────────────────────────────────────────────────────────
 
 class LeadCreate(BaseModel):
-    type: LeadType = LeadType.vehicle
+    type: LeadType
     name: str
     phone: str
     email: str | None = None
@@ -113,6 +113,35 @@ class GuideOut(BaseModel):
     @classmethod
     def coerce_blocks(cls, v: Any) -> list:
         return v if v is not None else []
+
+
+# ── Authors ───────────────────────────────────────────────────────────────────
+
+class AuthorCreate(BaseModel):
+    name: str
+    avatar_url: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Le nom de l'auteur est requis.")
+        return v.strip()
+
+
+class AuthorUpdate(BaseModel):
+    name: str | None = None
+    avatar_url: str | None = None
+
+
+class AuthorOut(BaseModel):
+    id: int
+    name: str
+    avatar_url: str | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 # ── Contacts ──────────────────────────────────────────────────────────────────
