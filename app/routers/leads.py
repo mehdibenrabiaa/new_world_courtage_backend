@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.models import Lead, LeadStatus
+from app.models import Lead, LeadAnswer, LeadStatus
 from app.schemas import LeadCreate, LeadOut, LeadUpdate
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -9,7 +9,9 @@ router = APIRouter(prefix="/leads", tags=["leads"])
 
 @router.post("/", response_model=LeadOut, status_code=201)
 def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
-    lead = Lead(**payload.model_dump())
+    data = payload.model_dump(exclude={"answers"})
+    lead = Lead(**data)
+    lead.answers = [LeadAnswer(**a) for a in payload.model_dump()["answers"]]
     db.add(lead)
     db.commit()
     db.refresh(lead)
@@ -23,7 +25,7 @@ def list_leads(
     limit: int = 100,
     db: Session = Depends(get_db),
 ):
-    q = db.query(Lead)
+    q = db.query(Lead).filter(Lead.deleted.is_(False))
     if status:
         q = q.filter(Lead.status == status)
     return q.order_by(Lead.created_at.desc()).offset(skip).limit(limit).all()
@@ -51,8 +53,10 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
 
 @router.delete("/{lead_id}", status_code=204)
 def delete_lead(lead_id: int, db: Session = Depends(get_db)):
+    """Soft delete: hides the lead from list_leads but keeps it (and its
+    answers) in the DB — nothing is ever permanently lost from here."""
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead introuvable.")
-    db.delete(lead)
+    lead.deleted = True
     db.commit()

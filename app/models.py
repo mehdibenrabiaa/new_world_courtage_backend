@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any
-from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum, ForeignKey
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
 
@@ -23,6 +23,7 @@ class LeadType(str, enum.Enum):
     ambulance = "Assurance Ambulance"
     vtc = "Assurance VTC"
     pro_auto = "Assurance Pro de l'auto"
+    garage = "Assurance Garage"
     construction = "Assurance Construction"
     immobilier = "Assurance Immobilier"
     general = "Assurance Général"
@@ -52,6 +53,9 @@ class Lead(Base):
     # Meta
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)  # page URL or campaign
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # "Deleting" a lead from the CRM only hides it (excluded from list_leads) —
+    # it stays in the DB so nothing is ever lost to an accidental click.
+    deleted: Mapped[bool] = mapped_column(default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -60,6 +64,26 @@ class Lead(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+    answers: Mapped[list["LeadAnswer"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LeadAnswer.id"
+    )
+
+
+class LeadAnswer(Base):
+    """One questionnaire answer attached to a lead — catalog_key/question are
+    snapshotted at submission time (see app/question_catalog.py) so they stay
+    correct even if the catalog entry is later reworded or removed."""
+
+    __tablename__ = "lead_answers"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"))
+    catalog_key: Mapped[str] = mapped_column(String(120))
+    question: Mapped[str] = mapped_column(String(500))
+    value: Mapped[str] = mapped_column(Text)
+
+    lead: Mapped["Lead"] = relationship(back_populates="answers")
 
 
 class GuideStatus(str, enum.Enum):
@@ -114,6 +138,40 @@ class Author(Base):
         default=lambda: datetime.now(timezone.utc),
         onupdate=lambda: datetime.now(timezone.utc),
     )
+
+
+class Questionnaire(Base):
+    __tablename__ = "questionnaires"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    questions: Mapped[list["Question"]] = relationship(
+        back_populates="questionnaire", cascade="all, delete-orphan", order_by="Question.order"
+    )
+
+
+class Question(Base):
+    """A question included in a questionnaire, referencing a fixed entry in
+    app/question_catalog.py by key. The catalog defines the question's type
+    and options; the CRM can only include/exclude/reorder questions and
+    override their wording here (see the *_override columns)."""
+
+    __tablename__ = "questions"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    questionnaire_id: Mapped[int] = mapped_column(ForeignKey("questionnaires.id"))
+    catalog_key: Mapped[str] = mapped_column(String(120))
+    order: Mapped[int] = mapped_column(default=0)
+    question_override: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    hint_override: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    placeholder_override: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    questionnaire: Mapped["Questionnaire"] = relationship(back_populates="questions")
 
 
 class Contact(Base):

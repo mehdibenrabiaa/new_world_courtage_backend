@@ -6,6 +6,21 @@ from app.models import LeadStatus, LeadType, GuideStatus
 
 # ── Leads ─────────────────────────────────────────────────────────────────────
 
+class LeadAnswerIn(BaseModel):
+    catalog_key: str
+    question: str
+    value: str
+
+
+class LeadAnswerOut(BaseModel):
+    id: int
+    catalog_key: str
+    question: str
+    value: str
+
+    model_config = {"from_attributes": True}
+
+
 class LeadCreate(BaseModel):
     type: LeadType
     name: str
@@ -17,6 +32,8 @@ class LeadCreate(BaseModel):
     siret: str | None = None
     activite: str | None = None
     source: str | None = None
+    notes: str | None = None
+    answers: list[LeadAnswerIn] = []
 
     @field_validator("phone")
     @classmethod
@@ -54,6 +71,7 @@ class LeadOut(BaseModel):
     activite: str | None
     source: str | None
     notes: str | None
+    answers: list[LeadAnswerOut] = []
     created_at: datetime
     updated_at: datetime
 
@@ -148,6 +166,111 @@ class AuthorOut(BaseModel):
     avatar_url: str | None
     created_at: datetime
     updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+# ── Questionnaires ────────────────────────────────────────────────────────────
+
+class QuestionnaireCreate(BaseModel):
+    slug: str
+    name: str
+
+    @field_validator("slug")
+    @classmethod
+    def slug_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Le slug est requis.")
+        return v.strip()
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Le nom est requis.")
+        return v.strip()
+
+
+class QuestionnaireUpdate(BaseModel):
+    slug: str | None = None
+    name: str | None = None
+
+    @field_validator("slug")
+    @classmethod
+    def slug_not_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("Le slug est requis.")
+        return v.strip() if v is not None else v
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("Le nom est requis.")
+        return v.strip() if v is not None else v
+
+
+class CatalogOptionOut(BaseModel):
+    label: str
+    value: str
+
+
+class CatalogEntryOut(BaseModel):
+    """A question available to add, from app/question_catalog.py — its
+    default wording before any override, plus its fixed type/options."""
+    key: str
+    section: str | None = None
+    eyebrow: str | None = None
+    type: str
+    input_type: str | None = None
+    question: str
+    hint: str | None = None
+    placeholder: str | None = None
+    required: bool = True
+    card: bool = False
+    options: list[CatalogOptionOut] = []
+
+
+class QuestionAdd(BaseModel):
+    catalog_key: str
+    order: int = 0
+
+
+class QuestionWordingUpdate(BaseModel):
+    question: str | None = None
+    hint: str | None = None
+    placeholder: str | None = None
+    order: int | None = None
+
+
+class QuestionOut(BaseModel):
+    """A question included in a questionnaire, with catalog + override
+    wording already merged (see routers/questionnaires.py's _merge)."""
+    id: int
+    questionnaire_id: int
+    catalog_key: str
+    key: str  # alias of catalog_key — matches what the public site's mapQuestionToStep expects
+    section: str | None
+    eyebrow: str | None
+    type: str
+    input_type: str | None
+    question: str
+    hint: str | None
+    placeholder: str | None
+    required: bool
+    card: bool
+    order: int
+    options: list[CatalogOptionOut]
+    # A question whose catalog entry no longer exists (catalog edited/removed
+    # after it was added) — surfaced so the CRM can flag it instead of crashing.
+    orphaned: bool = False
+
+
+class QuestionnaireOut(BaseModel):
+    id: int
+    slug: str
+    name: str
+    questions: list[QuestionOut]
 
     model_config = {"from_attributes": True}
 
