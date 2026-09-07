@@ -243,6 +243,17 @@ class QuestionWordingUpdate(BaseModel):
     order: int | None = None
 
 
+class RuleOut(BaseModel):
+    """Conditional-visibility rule, resolved from a catalog entry's
+    `skip_unless` against sibling questions in the same questionnaire (see
+    routers/questionnaires.py's _merge). Consumed by the public site's
+    isStepSkipped()."""
+    source_question_id: int
+    operator: str
+    value: str
+    action: str = "skip"
+
+
 class QuestionOut(BaseModel):
     """A question included in a questionnaire, with catalog + override
     wording already merged (see routers/questionnaires.py's _merge)."""
@@ -259,8 +270,16 @@ class QuestionOut(BaseModel):
     placeholder: str | None
     required: bool
     card: bool
+    # A "gate" question is shown on its own screen before the step-by-step
+    # wizard begins (not one of its sections/tabs) — see CarInsuranceForm.js.
+    gate: bool = False
+    # Restricts this question to prospects who picked at least one of these
+    # products on the gate screen (see the "produits_interesses" gate
+    # question) — None/omitted means it applies to every product.
+    products: list[str] | None = None
     order: int
     options: list[CatalogOptionOut]
+    rules: list[RuleOut] = []
     # A question whose catalog entry no longer exists (catalog edited/removed
     # after it was added) — surfaced so the CRM can flag it instead of crashing.
     orphaned: bool = False

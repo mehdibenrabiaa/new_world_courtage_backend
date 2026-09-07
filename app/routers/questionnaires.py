@@ -5,7 +5,7 @@ from app.models import Questionnaire, Question
 from app.question_catalog import get_catalog, get_catalog_entry
 from app.schemas import (
     QuestionnaireCreate, QuestionnaireUpdate, QuestionnaireOut,
-    CatalogEntryOut, QuestionAdd, QuestionWordingUpdate, QuestionOut,
+    CatalogEntryOut, QuestionAdd, QuestionWordingUpdate, QuestionOut, RuleOut,
 )
 
 router = APIRouter(prefix="/questionnaires", tags=["questionnaires"])
@@ -25,7 +25,7 @@ def _get_question_or_404(question_id: int, db: Session) -> Question:
     return question
 
 
-def _merge(question: Question, template: str) -> QuestionOut:
+def _merge(question: Question, template: str, catalog_key_to_id: dict[str, int]) -> QuestionOut:
     """Combine a Question row with its catalog entry (by template + catalog_key)
     into the shape both the CRM and the public site consume."""
     entry = get_catalog_entry(template, question.catalog_key)
@@ -38,6 +38,12 @@ def _merge(question: Question, template: str) -> QuestionOut:
             hint=question.hint_override, placeholder=question.placeholder_override,
             required=True, card=False, order=question.order, options=[], orphaned=True,
         )
+    rules = []
+    skip_unless = entry.get("skip_unless")
+    if skip_unless:
+        source_id = catalog_key_to_id.get(skip_unless["key"])
+        if source_id is not None:
+            rules.append(RuleOut(source_question_id=source_id, operator="not_equals", value=skip_unless["value"]))
     return QuestionOut(
         id=question.id,
         questionnaire_id=question.questionnaire_id,
@@ -52,16 +58,20 @@ def _merge(question: Question, template: str) -> QuestionOut:
         placeholder=question.placeholder_override if question.placeholder_override is not None else entry.get("placeholder"),
         required=entry.get("required", True),
         card=entry.get("card", False),
+        gate=entry.get("gate", False),
+        products=entry.get("products"),
         order=question.order,
         options=entry.get("options", []),
+        rules=rules,
     )
 
 
 def _questionnaire_out(questionnaire: Questionnaire) -> QuestionnaireOut:
     questions = sorted(questionnaire.questions, key=lambda q: q.order)
+    catalog_key_to_id = {q.catalog_key: q.id for q in questions}
     return QuestionnaireOut(
         id=questionnaire.id, slug=questionnaire.slug, name=questionnaire.name,
-        questions=[_merge(q, questionnaire.slug) for q in questions],
+        questions=[_merge(q, questionnaire.slug, catalog_key_to_id) for q in questions],
     )
 
 
@@ -124,7 +134,8 @@ def list_published_questions(slug: str, db: Session = Depends(get_db)):
     site's questionnaire flow."""
     questionnaire = _get_questionnaire_or_404(slug, db)
     questions = sorted(questionnaire.questions, key=lambda q: q.order)
-    return [_merge(q, questionnaire.slug) for q in questions]
+    catalog_key_to_id = {q.catalog_key: q.id for q in questions}
+    return [_merge(q, questionnaire.slug, catalog_key_to_id) for q in questions]
 
 
 @router.post("/{slug}/questions", response_model=QuestionOut, status_code=201)
@@ -143,7 +154,8 @@ def add_question(slug: str, payload: QuestionAdd, db: Session = Depends(get_db))
     db.add(question)
     db.commit()
     db.refresh(question)
-    return _merge(question, questionnaire.slug)
+    catalog_key_to_id = {q.catalog_key: q.id for q in questionnaire.questions}
+    return _merge(question, questionnaire.slug, catalog_key_to_id)
 
 
 @router.patch("/questions/{question_id}", response_model=QuestionOut)
@@ -162,7 +174,8 @@ def update_question_wording(question_id: int, payload: QuestionWordingUpdate, db
 
     db.commit()
     db.refresh(question)
-    return _merge(question, questionnaire.slug)
+    catalog_key_to_id = {q.catalog_key: q.id for q in questionnaire.questions}
+    return _merge(question, questionnaire.slug, catalog_key_to_id)
 
 
 @router.delete("/questions/{question_id}", status_code=204)
