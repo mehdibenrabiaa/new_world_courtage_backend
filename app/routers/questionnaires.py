@@ -53,6 +53,7 @@ def _merge(question: Question, template: str, catalog_key_to_id: dict[str, int])
         eyebrow=entry.get("eyebrow"),
         type=entry["type"],
         input_type=entry.get("input_type"),
+        unit=entry.get("unit"),
         question=question.question_override or entry["question"],
         hint=question.hint_override if question.hint_override is not None else entry.get("hint"),
         placeholder=question.placeholder_override if question.placeholder_override is not None else entry.get("placeholder"),

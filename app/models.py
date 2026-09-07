@@ -52,7 +52,6 @@ class Lead(Base):
 
     # Meta
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)  # page URL or campaign
-    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     # "Deleting" a lead from the CRM only hides it (excluded from list_leads) —
     # it stays in the DB so nothing is ever lost to an accidental click.
     deleted: Mapped[bool] = mapped_column(default=False)
@@ -67,6 +66,12 @@ class Lead(Base):
 
     answers: Mapped[list["LeadAnswer"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="LeadAnswer.id"
+    )
+    sticky_notes: Mapped[list["LeadNote"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LeadNote.created_at.desc()"
+    )
+    tasks: Mapped[list["LeadTask"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LeadTask.due_date"
     )
 
 
@@ -84,6 +89,71 @@ class LeadAnswer(Base):
     value: Mapped[str] = mapped_column(Text)
 
     lead: Mapped["Lead"] = relationship(back_populates="answers")
+
+
+class LeadContact(Base):
+    """A snapshot of a lead's contact info (name/phone/email/address), kept
+    in its own table linked to the lead by a nullable FK. Unlike
+    answers/notes/tasks this has no cascade — if the lead row is ever hard-
+    deleted, `lead_id` just goes NULL (ON DELETE SET NULL) instead of the
+    contact disappearing with it, since the whole point is that this survives
+    independently of the lead's lifecycle."""
+
+    __tablename__ = "lead_contacts"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    phone: Mapped[str] = mapped_column(String(30))
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    lead: Mapped["Lead | None"] = relationship(passive_deletes=True)
+
+
+NOTE_COLORS = ("yellow", "pink", "blue", "green", "purple", "orange")
+
+
+class LeadNote(Base):
+    """A free-form sticky note attached to a lead — the CRM lets a lead have
+    any number of these (unlike the old single `notes` text field it
+    replaces), each with its own color and creation timestamp."""
+
+    __tablename__ = "lead_notes"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"))
+    content: Mapped[str] = mapped_column(Text)
+    color: Mapped[str] = mapped_column(String(20), default="yellow")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    lead: Mapped["Lead"] = relationship(back_populates="sticky_notes")
+
+
+class LeadTask(Base):
+    """A to-do attached to a lead — a comment, the action it calls for, and
+    when it's due. Shown in the CRM's "Tâches" tab."""
+
+    __tablename__ = "lead_tasks"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"))
+    comment: Mapped[str] = mapped_column(Text)
+    action: Mapped[str] = mapped_column(String(300))
+    due_date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    # Once marked complete, the CRM locks the task's fields — matches
+    # Salesforce's "Mark as Complete" pattern instead of a plain delete.
+    completed: Mapped[bool] = mapped_column(default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    lead: Mapped["Lead"] = relationship(back_populates="tasks")
 
 
 class GuideStatus(str, enum.Enum):

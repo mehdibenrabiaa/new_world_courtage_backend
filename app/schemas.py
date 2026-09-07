@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, field_validator
 from app.models import LeadStatus, LeadType, GuideStatus
+
+NoteColor = Literal["yellow", "pink", "blue", "green", "purple", "orange"]
 
 
 # ── Leads ─────────────────────────────────────────────────────────────────────
@@ -32,7 +34,6 @@ class LeadCreate(BaseModel):
     siret: str | None = None
     activite: str | None = None
     source: str | None = None
-    notes: str | None = None
     answers: list[LeadAnswerIn] = []
 
     @field_validator("phone")
@@ -54,7 +55,65 @@ class LeadUpdate(BaseModel):
     permis: str | None = None
     siret: str | None = None
     activite: str | None = None
-    notes: str | None = None
+
+
+class LeadNoteCreate(BaseModel):
+    content: str
+    color: NoteColor = "yellow"
+
+
+class LeadNoteUpdate(BaseModel):
+    content: str | None = None
+    color: NoteColor | None = None
+
+
+class LeadNoteOut(BaseModel):
+    id: int
+    content: str
+    color: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LeadTaskCreate(BaseModel):
+    comment: str
+    action: str
+    due_date: str
+
+
+class LeadTaskUpdate(BaseModel):
+    comment: str | None = None
+    action: str | None = None
+    due_date: str | None = None
+    completed: bool | None = None
+
+
+class LeadTaskOut(BaseModel):
+    id: int
+    comment: str
+    action: str
+    due_date: str
+    completed: bool = False
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LeadContactOut(BaseModel):
+    id: int
+    lead_id: int | None
+    # True when the source lead is gone — either hard-deleted (lead_id itself
+    # went NULL) or soft-deleted via DELETE /leads/{id} (Lead.deleted, which
+    # never touches lead_id — see routers/leads.py's delete_lead).
+    lead_deleted: bool
+    name: str
+    phone: str
+    email: str | None
+    address: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
 
 
 class LeadOut(BaseModel):
@@ -70,8 +129,9 @@ class LeadOut(BaseModel):
     siret: str | None
     activite: str | None
     source: str | None
-    notes: str | None
     answers: list[LeadAnswerOut] = []
+    sticky_notes: list[LeadNoteOut] = []
+    tasks: list[LeadTaskOut] = []
     created_at: datetime
     updated_at: datetime
 
@@ -265,6 +325,7 @@ class QuestionOut(BaseModel):
     eyebrow: str | None
     type: str
     input_type: str | None
+    unit: str | None = None
     question: str
     hint: str | None
     placeholder: str | None
