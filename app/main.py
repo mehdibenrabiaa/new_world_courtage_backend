@@ -6,8 +6,8 @@ from sqlalchemy import text, inspect
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, engine
-from app.models import Lead, LeadContact
-from app.routers import leads, contacts, guides, authors, media, questionnaires
+from app.models import Consultant, Lead, LeadContact
+from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants
 
 # The questionnaire feature moved from a fully dynamic question model
 # (type/options/rules/draft-publish, all admin-defined) to a fixed catalog
@@ -68,6 +68,17 @@ with Session(engine) as _session:
     if _leads_missing_contact:
         _session.commit()
 
+# Seed a couple of consultants on first boot — the confirmation screen's
+# booking calendar only ever offers a timeframe when at least one active
+# consultant has no booking there, so it needs at least one row to work at all.
+with Session(engine) as _session:
+    if _session.query(Consultant).count() == 0:
+        _session.add_all([
+            Consultant(name="Sophie Martin"),
+            Consultant(name="Julien Bernard"),
+        ])
+        _session.commit()
+
 # Ensure upload directories exist
 os.makedirs("uploads/guides", exist_ok=True)
 os.makedirs("uploads/authors", exist_ok=True)
@@ -99,6 +110,7 @@ app.include_router(contacts.router, prefix="/api")
 app.include_router(guides.router, prefix="/api")
 app.include_router(authors.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
+app.include_router(consultants.router, prefix="/api")
 # No "/api" prefix: matches the CRM's existing lib/api.ts calls for this feature.
 app.include_router(questionnaires.router)
 

@@ -244,6 +244,45 @@ class Question(Base):
     questionnaire: Mapped["Questionnaire"] = relationship(back_populates="questions")
 
 
+class Consultant(Base):
+    """An advisor who can take a post-submission callback booking (see
+    ConsultantBooking below). A timeframe is only offered to a prospect on
+    the confirmation screen if at least one active consultant is free then."""
+
+    __tablename__ = "consultants"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    bookings: Mapped[list["ConsultantBooking"]] = relationship(
+        back_populates="consultant", cascade="all, delete-orphan"
+    )
+
+
+class ConsultantBooking(Base):
+    """One consultant's claim on a date/time slot. `lead_id` goes NULL if the
+    lead is later hard-deleted (same pattern as LeadContact) — the booking
+    itself, and the consultant's calendar, still stand."""
+
+    __tablename__ = "consultant_bookings"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    consultant_id: Mapped[int] = mapped_column(ForeignKey("consultants.id"))
+    lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
+    date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    time: Mapped[str] = mapped_column(String(5))   # HH:MM
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    consultant: Mapped["Consultant"] = relationship(back_populates="bookings")
+
+
 class Contact(Base):
     __tablename__ = "contacts"
 

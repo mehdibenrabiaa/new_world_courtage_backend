@@ -7,6 +7,16 @@ class Settings(BaseSettings):
     secret_key: str = "change-me-in-production"
     base_url: str = "http://localhost:8000"
 
+    # Outbound email (SMTP) — all optional. Left blank, app/email.py no-ops
+    # instead of sending, so lead/booking creation keeps working before
+    # these are filled in (see .env.example).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    smtp_use_tls: bool = True
+    email_from: str = "New World Courtage <devis@newworldcourtage.com>"
+
     @property
     def origins_list(self) -> list[str]:
         return [o.strip() for o in self.allowed_origins.split(",")]

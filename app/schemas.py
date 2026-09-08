@@ -355,6 +355,34 @@ class QuestionnaireOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Consultants / booking ────────────────────────────────────────────────────
+
+class SlotOut(BaseModel):
+    time: str
+    available: bool
+
+
+class AvailabilityOut(BaseModel):
+    date: str
+    slots: list[SlotOut]
+
+
+class BookingCreate(BaseModel):
+    date: str
+    time: str
+    lead_id: int | None = None
+
+
+class BookingOut(BaseModel):
+    id: int
+    date: str
+    time: str
+    consultant_name: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Contacts ──────────────────────────────────────────────────────────────────
 
 class ContactCreate(BaseModel):

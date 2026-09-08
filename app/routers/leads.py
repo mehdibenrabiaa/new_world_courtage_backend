@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
+from app.email import send_lead_confirmation_email
 from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask
 from app.schemas import (
     LeadCreate, LeadContactOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut, LeadUpdate,
@@ -36,6 +37,10 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
         email=lead.email, address=_lead_address(answers),
     ))
     db.commit()
+
+    if lead.email:
+        send_lead_confirmation_email(lead.name, lead.email, lead.type.value)
+
     return lead
 
 
