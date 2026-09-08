@@ -369,8 +369,8 @@ CATALOGS: dict[str, list[dict]] = {
         {"key": "negociant_nb_sinistres", "section": "Risques", "type": "input", "input_type": "number", "required": False, "products": ["negociants"],
          "question": "Nombre de sinistres",
          "skip_unless": {"key": "negociant_sinistres_36mois", "value": "oui"}},
-        {"key": "negociant_montant_sinistres", "section": "Risques", "type": "input", "input_type": "textarea", "required": False, "unit": "eur", "products": ["negociants"],
-         "question": "Montant total des sinistres ouverts (€) - détails si nécessaire",
+        {"key": "negociant_montant_sinistres", "section": "Risques", "type": "input", "input_type": "number", "required": False, "unit": "eur", "products": ["negociants"],
+         "question": "Montant total des sinistres ouverts",
          "skip_unless": {"key": "negociant_sinistres_36mois", "value": "oui"}},
 
         # — Antécédents — the plain déjà-créée/résiliée/déjà-assurée cluster
