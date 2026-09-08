@@ -160,7 +160,7 @@ CATALOGS: dict[str, list[dict]] = {
 
         # — Coordonnées —
         {"key": "representant_legal", "section": "Coordonnées", "type": "input", "input_type": "text",
-         "question": "Nom et prénom du représentant légal"},
+         "question": "Nom et prénom"},
         {"key": "mobile", "section": "Coordonnées", "type": "input", "input_type": "tel",
          "question": "Mobile"},
         {"key": "email_principal", "section": "Coordonnées", "type": "input", "input_type": "email",
