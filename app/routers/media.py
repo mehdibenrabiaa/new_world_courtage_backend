@@ -3,11 +3,12 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
+from app.auth import get_current_user
 from app.database import get_db
 from app.models import Guide, Author
 from app.config import settings
 
-router = APIRouter(prefix="/media", tags=["media"])
+router = APIRouter(prefix="/media", tags=["media"], dependencies=[Depends(get_current_user)])
 
 UPLOAD_ROOT = Path("uploads")
 

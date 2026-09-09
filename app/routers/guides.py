@@ -2,8 +2,9 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
+from app.auth import get_current_user
 from app.database import get_db
-from app.models import Guide, GuideStatus
+from app.models import Guide, GuideStatus, User
 from app.schemas import GuideCreate, GuideOut, GuideUpdate
 from app.config import settings
 
@@ -37,7 +38,7 @@ def get_guide_by_slug(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{guide_id}", response_model=GuideOut)
-def get_guide(guide_id: int, db: Session = Depends(get_db)):
+def get_guide(guide_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")
@@ -45,7 +46,7 @@ def get_guide(guide_id: int, db: Session = Depends(get_db)):
 
 
 @router.post("/", response_model=GuideOut, status_code=201)
-def create_guide(payload: GuideCreate, db: Session = Depends(get_db)):
+def create_guide(payload: GuideCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     existing = db.query(Guide).filter(Guide.slug == payload.slug).first()
     if existing:
         raise HTTPException(status_code=409, detail="Un guide avec ce slug existe déjà.")
@@ -57,7 +58,7 @@ def create_guide(payload: GuideCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/{guide_id}", response_model=GuideOut)
-def update_guide(guide_id: int, payload: GuideUpdate, db: Session = Depends(get_db)):
+def update_guide(guide_id: int, payload: GuideUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")
@@ -73,6 +74,7 @@ async def upload_guide_image(
     guide_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     guide = db.get(Guide, guide_id)
     if not guide:
@@ -101,7 +103,7 @@ async def upload_guide_image(
 
 
 @router.delete("/{guide_id}", status_code=204)
-def delete_guide(guide_id: int, db: Session = Depends(get_db)):
+def delete_guide(guide_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")

@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from app.auth import get_current_user
 from app.database import get_db
-from app.models import Contact
+from app.models import Contact, User
 from app.schemas import ContactCreate, ContactOut
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
@@ -22,6 +23,7 @@ def list_contacts(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
+    _user: User = Depends(get_current_user),
 ):
     q = db.query(Contact)
     if unread_only:
@@ -30,7 +32,7 @@ def list_contacts(
 
 
 @router.get("/{contact_id}", response_model=ContactOut)
-def get_contact(contact_id: int, db: Session = Depends(get_db)):
+def get_contact(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
@@ -38,7 +40,7 @@ def get_contact(contact_id: int, db: Session = Depends(get_db)):
 
 
 @router.patch("/{contact_id}/read", response_model=ContactOut)
-def mark_read(contact_id: int, db: Session = Depends(get_db)):
+def mark_read(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
@@ -49,7 +51,7 @@ def mark_read(contact_id: int, db: Session = Depends(get_db)):
 
 
 @router.delete("/{contact_id}", status_code=204)
-def delete_contact(contact_id: int, db: Session = Depends(get_db)):
+def delete_contact(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")

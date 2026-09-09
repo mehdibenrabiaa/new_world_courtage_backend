@@ -2,6 +2,7 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
+from app.auth import get_current_user
 from app.database import get_db
 from app.models import Author, Guide
 from app.schemas import AuthorCreate, AuthorUpdate, AuthorOut
@@ -9,7 +10,7 @@ from app.config import settings
 
 UPLOAD_DIR = Path("uploads/authors")
 
-router = APIRouter(prefix="/authors", tags=["authors"])
+router = APIRouter(prefix="/authors", tags=["authors"], dependencies=[Depends(get_current_user)])
 
 
 def _delete_avatar_file(avatar_url: str | None) -> None:

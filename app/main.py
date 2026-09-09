@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, engine
 from app.models import Consultant, Lead, LeadContact
-from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants
+from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants, auth
 
 # The questionnaire feature moved from a fully dynamic question model
 # (type/options/rules/draft-publish, all admin-defined) to a fixed catalog
@@ -105,6 +105,7 @@ app.add_middleware(
     allow_private_network=True,
 )
 
+app.include_router(auth.router, prefix="/api")
 app.include_router(leads.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(guides.router, prefix="/api")
