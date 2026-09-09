@@ -61,3 +61,27 @@ def update_user(
     db.commit()
     db.refresh(user)
     return user
+
+
+@router.delete("/{user_id}", status_code=204)
+def delete_user(
+    user_id: int, db: Session = Depends(get_db),
+    current_user: User = Depends(require_superadmin),
+):
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=409, detail="Vous ne pouvez pas supprimer votre propre compte.")
+
+    # Same "never end up with zero superadmins" guard as update_user — only
+    # relevant if this account is actually an active superadmin right now.
+    if user.role == UserRole.superadmin and user.active:
+        remaining = db.query(User).filter(
+            User.role == UserRole.superadmin, User.active.is_(True), User.id != user.id,
+        ).count()
+        if remaining == 0:
+            raise HTTPException(status_code=409, detail="Impossible : il doit toujours rester au moins un super-administrateur actif.")
+
+    db.delete(user)
+    db.commit()
