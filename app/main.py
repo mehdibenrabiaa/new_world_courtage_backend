@@ -101,6 +101,15 @@ with Session(engine) as _session:
             _first_user.role = UserRole.superadmin
             _session.commit()
 
+# "questionnaires" was removed from PermissionResource (editing them is
+# superadmin-only now, not a grantable permission — see
+# routers/questionnaires.py) — drop any rows already seeded for it so
+# SQLAlchemy's Enum column never has to deserialize a value with no
+# matching Python member.
+with engine.connect() as _conn:
+    _conn.execute(text("DELETE FROM role_permissions WHERE resource = 'questionnaires'"))
+    _conn.commit()
+
 # Seed default role permissions on first boot — a superadmin can change any
 # of this afterward from the CRM's Permissions page. superadmin itself is
 # never seeded here: it always passes every check (see app/auth.py).
@@ -113,7 +122,6 @@ with Session(engine) as _session:
             UserRole.consultant: {
                 PermissionResource.leads: {"view", "create", "edit"},
                 PermissionResource.contacts: {"view"},
-                PermissionResource.questionnaires: {"view"},
                 PermissionResource.guides: set(),
                 PermissionResource.authors: set(),
                 PermissionResource.media: set(),

@@ -18,12 +18,14 @@ class UserRole(str, enum.Enum):
 
 
 class PermissionResource(str, enum.Enum):
+    """Questionnaires are deliberately not here — editing them is
+    superadmin-only, hardcoded (see routers/questionnaires.py), not a
+    permission any role can be granted."""
     leads = "leads"
     contacts = "contacts"
     guides = "guides"
     authors = "authors"
     media = "media"
-    questionnaires = "questionnaires"
 
 
 class PermissionAction(str, enum.Enum):
