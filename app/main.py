@@ -1,4 +1,5 @@
 import os
+import re
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -59,6 +60,35 @@ with engine.connect() as _conn:
     if "role" not in _existing_users:
         _conn.execute(text("ALTER TABLE users ADD COLUMN role userrole NOT NULL DEFAULT 'consultant'"))
         _conn.commit()
+    if "username" not in _existing_users:
+        _conn.execute(text("ALTER TABLE users ADD COLUMN username VARCHAR(60)"))
+        _conn.commit()
+
+# Login switched from email to username. Backfill one for any account
+# created before this (derived from their email's local part, de-duplicated
+# against everyone else's), then lock the column down now that every row
+# has one — safe to run every boot, both statements are no-ops once done.
+with Session(engine) as _session:
+    _users_missing_username = _session.query(User).filter(User.username.is_(None)).all()
+    if _users_missing_username:
+        _taken_usernames = {
+            row[0] for row in _session.query(User.username).filter(User.username.isnot(None))
+        }
+        for _user in _users_missing_username:
+            _base = re.sub(r"[^a-z0-9._-]", "", _user.email.split("@")[0].lower()) or f"user{_user.id}"
+            _candidate = _base
+            _n = 1
+            while _candidate in _taken_usernames:
+                _n += 1
+                _candidate = f"{_base}{_n}"
+            _user.username = _candidate
+            _taken_usernames.add(_candidate)
+        _session.commit()
+
+with engine.connect() as _conn:
+    _conn.execute(text("ALTER TABLE users ALTER COLUMN username SET NOT NULL"))
+    _conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username_unique ON users (username)"))
+    _conn.commit()
 
 # Postgres enums are a fixed native type — adding a Python enum member (e.g.
 # LeadType.garage) doesn't add it to the existing DB type, so inserts with

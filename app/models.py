@@ -331,6 +331,9 @@ class User(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     name: Mapped[str] = mapped_column(String(120))
+    # The login identifier (not email — see main.py's migration, which
+    # backfills this for accounts created before the switch).
+    username: Mapped[str] = mapped_column(String(60), unique=True, index=True)
     email: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.consultant)

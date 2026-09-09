@@ -10,9 +10,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/login", response_model=TokenOut)
 def login(payload: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == payload.email.strip().lower()).first()
+    user = db.query(User).filter(User.username == payload.username.strip().lower()).first()
     if not user or not user.active or not verify_password(payload.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect.")
+        raise HTTPException(status_code=401, detail="Nom d'utilisateur ou mot de passe incorrect.")
     return TokenOut(access_token=create_access_token(user), user=UserOut.model_validate(user))
 
 

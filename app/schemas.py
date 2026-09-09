@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, field_validator
@@ -378,13 +379,14 @@ class QuestionnaireOut(BaseModel):
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
-    email: str
+    username: str
     password: str
 
 
 class UserOut(BaseModel):
     id: int
     name: str
+    username: str
     email: str
     role: UserRole
     active: bool
@@ -410,6 +412,7 @@ class MeOut(UserOut):
 
 class UserCreate(BaseModel):
     name: str
+    username: str
     email: str
     password: str
     role: UserRole = UserRole.consultant
@@ -420,6 +423,16 @@ class UserCreate(BaseModel):
         if not v.strip():
             raise ValueError("Le nom est requis.")
         return v.strip()
+
+    @field_validator("username")
+    @classmethod
+    def username_normalize(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("Le nom d'utilisateur est requis.")
+        if not re.fullmatch(r"[a-z0-9._-]+", v):
+            raise ValueError("Le nom d'utilisateur ne peut contenir que des lettres, chiffres, points, tirets et underscores.")
+        return v
 
     @field_validator("email")
     @classmethod
@@ -439,9 +452,20 @@ class UserCreate(BaseModel):
 
 class UserUpdate(BaseModel):
     name: str | None = None
+    username: str | None = None
     role: UserRole | None = None
     active: bool | None = None
     password: str | None = None
+
+    @field_validator("username")
+    @classmethod
+    def username_normalize(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if not v or not re.fullmatch(r"[a-z0-9._-]+", v):
+            raise ValueError("Nom d'utilisateur invalide.")
+        return v
 
     @field_validator("password")
     @classmethod

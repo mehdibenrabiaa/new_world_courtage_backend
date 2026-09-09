@@ -4,12 +4,13 @@ endpoint on purpose — there is no public signup flow for this internal tool.
 Usage (from the backend project root, with the venv active or via its
 python.exe directly, and DATABASE_URL set if it's not already in .env):
 
-    python scripts/create_user.py "Jane Doe" jane@newworldcourtage.fr
+    python scripts/create_user.py "Jane Doe" jane.doe jane@newworldcourtage.fr
 
-It will prompt for a password (hidden input). If a user with that email
-already exists, its name/password are updated instead of erroring.
+It will prompt for a password (hidden input). If a user with that username
+already exists, its name/email/password are updated instead of erroring.
 """
 import getpass
+import re
 import sys
 from pathlib import Path
 
@@ -21,11 +22,15 @@ from app.models import User
 
 
 def main() -> None:
-    if len(sys.argv) != 3:
-        print("Usage: python scripts/create_user.py \"Full Name\" email@example.com")
+    if len(sys.argv) != 4:
+        print("Usage: python scripts/create_user.py \"Full Name\" username email@example.com")
         sys.exit(1)
 
-    name, email = sys.argv[1], sys.argv[2].strip().lower()
+    name, username, email = sys.argv[1], sys.argv[2].strip().lower(), sys.argv[3].strip().lower()
+    if not re.fullmatch(r"[a-z0-9._-]+", username):
+        print("Username can only contain lowercase letters, digits, dots, dashes and underscores.")
+        sys.exit(1)
+
     password = getpass.getpass("Password: ")
     confirm = getpass.getpass("Confirm password: ")
     if password != confirm:
@@ -37,18 +42,19 @@ def main() -> None:
 
     db = SessionLocal()
     try:
-        user = db.query(User).filter(User.email == email).first()
+        user = db.query(User).filter(User.username == username).first()
         if user:
             user.name = name
+            user.email = email
             user.password_hash = hash_password(password)
             user.active = True
             db.commit()
-            print(f"Updated existing user: {email}")
+            print(f"Updated existing user: {username}")
         else:
-            user = User(name=name, email=email, password_hash=hash_password(password))
+            user = User(name=name, username=username, email=email, password_hash=hash_password(password))
             db.add(user)
             db.commit()
-            print(f"Created user: {email}")
+            print(f"Created user: {username}")
     finally:
         db.close()
 

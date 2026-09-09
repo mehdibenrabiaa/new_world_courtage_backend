@@ -15,11 +15,12 @@ def list_users(db: Session = Depends(get_db)):
 
 @router.post("/", response_model=UserOut, status_code=201)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)):
-    existing = db.query(User).filter(User.email == payload.email).first()
-    if existing:
+    if db.query(User).filter(User.username == payload.username).first():
+        raise HTTPException(status_code=409, detail="Ce nom d'utilisateur est déjà pris.")
+    if db.query(User).filter(User.email == payload.email).first():
         raise HTTPException(status_code=409, detail="Un compte avec cet email existe déjà.")
     user = User(
-        name=payload.name, email=payload.email,
+        name=payload.name, username=payload.username, email=payload.email,
         password_hash=hash_password(payload.password), role=payload.role,
     )
     db.add(user)
@@ -38,6 +39,10 @@ def update_user(
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
 
     updates = payload.model_dump(exclude_none=True, exclude={"password"})
+
+    if "username" in updates and updates["username"] != user.username:
+        if db.query(User).filter(User.username == updates["username"], User.id != user.id).first():
+            raise HTTPException(status_code=409, detail="Ce nom d'utilisateur est déjà pris.")
 
     # A superadmin can't demote or deactivate themselves — and if they're
     # the last superadmin left, can't be demoted/deactivated by anyone else
