@@ -1,12 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.auth import require_permission
 from app.database import get_db
 from app.email import send_lead_confirmation_email
 from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, LeadType, User, UserRole
 from app.schemas import (
-    LeadCreate, LeadAssigneeOut, LeadContactOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut, LeadUpdate,
-    LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
+    LeadCreate, LeadAssigneeOut, LeadContactOut, LeadListOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut,
+    LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
 )
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -80,7 +80,7 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     return lead
 
 
-@router.get("/", response_model=list[LeadOut])
+@router.get("/", response_model=list[LeadListOut])
 def list_leads(
     response: Response,
     status: LeadStatus | None = Query(None),
@@ -93,7 +93,12 @@ def list_leads(
     db: Session = Depends(get_db),
     user=Depends(view_leads),
 ):
-    q = db.query(Lead).filter(Lead.deleted.is_(False))
+    # LeadListOut only surfaces assigned_to (not answers/sticky_notes/tasks
+    # like the single-lead LeadOut does), and joinedload folds that one
+    # relationship into the same query instead of lazy-loading it per row —
+    # otherwise a page of N leads would cost N extra round-trips just for a
+    # field the table actually shows.
+    q = db.query(Lead).options(joinedload(Lead.assigned_to)).filter(Lead.deleted.is_(False))
     if status:
         q = q.filter(Lead.status == status)
     if type:

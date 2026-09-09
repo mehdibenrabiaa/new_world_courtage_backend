@@ -159,6 +159,23 @@ class LeadOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LeadListOut(BaseModel):
+    """What the leads table actually displays — unlike LeadOut, this
+    deliberately skips answers/sticky_notes/tasks (and the other detail-only
+    fields) so listing a page of leads doesn't lazy-load three relationships
+    per row for content the list view never renders."""
+    id: int
+    type: LeadType
+    status: LeadStatus
+    name: str
+    phone: str
+    email: str | None
+    assigned_to: LeadAssigneeOut | None = None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Guides ────────────────────────────────────────────────────────────────────
 
 class GuideCreate(BaseModel):
