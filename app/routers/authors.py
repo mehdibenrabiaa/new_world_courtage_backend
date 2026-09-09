@@ -2,7 +2,7 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
 from app.models import Author, Guide
 from app.schemas import AuthorCreate, AuthorUpdate, AuthorOut
@@ -10,7 +10,12 @@ from app.config import settings
 
 UPLOAD_DIR = Path("uploads/authors")
 
-router = APIRouter(prefix="/authors", tags=["authors"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/authors", tags=["authors"])
+
+view_authors = require_permission("authors", "view")
+create_authors = require_permission("authors", "create")
+edit_authors = require_permission("authors", "edit")
+delete_authors = require_permission("authors", "delete")
 
 
 def _delete_avatar_file(avatar_url: str | None) -> None:
@@ -23,12 +28,12 @@ def _delete_avatar_file(avatar_url: str | None) -> None:
 
 
 @router.get("/", response_model=list[AuthorOut])
-def list_authors(db: Session = Depends(get_db)):
+def list_authors(db: Session = Depends(get_db), _user=Depends(view_authors)):
     return db.query(Author).order_by(Author.name.asc()).all()
 
 
 @router.post("/", response_model=AuthorOut, status_code=201)
-def create_author(payload: AuthorCreate, db: Session = Depends(get_db)):
+def create_author(payload: AuthorCreate, db: Session = Depends(get_db), _user=Depends(create_authors)):
     existing = db.query(Author).filter(Author.name == payload.name).first()
     if existing:
         raise HTTPException(status_code=409, detail="Un auteur avec ce nom existe déjà.")
@@ -40,7 +45,7 @@ def create_author(payload: AuthorCreate, db: Session = Depends(get_db)):
 
 
 @router.patch("/{author_id}", response_model=AuthorOut)
-def update_author(author_id: int, payload: AuthorUpdate, db: Session = Depends(get_db)):
+def update_author(author_id: int, payload: AuthorUpdate, db: Session = Depends(get_db), _user=Depends(edit_authors)):
     author = db.get(Author, author_id)
     if not author:
         raise HTTPException(status_code=404, detail="Auteur introuvable.")
@@ -74,6 +79,7 @@ async def upload_author_image(
     author_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
+    _user=Depends(edit_authors),
 ):
     author = db.get(Author, author_id)
     if not author:
@@ -96,7 +102,7 @@ async def upload_author_image(
 
 
 @router.delete("/{author_id}", status_code=204)
-def delete_author(author_id: int, db: Session = Depends(get_db)):
+def delete_author(author_id: int, db: Session = Depends(get_db), _user=Depends(delete_authors)):
     author = db.get(Author, author_id)
     if not author:
         raise HTTPException(status_code=404, detail="Auteur introuvable.")

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 import jwt
 from app.config import settings
 from app.database import get_db
-from app.models import User
+from app.models import RolePermission, User, UserRole
 
 # pbkdf2_sha256 is pure Python (no bcrypt C-extension to build), which keeps
 # `pip install` painless on every platform this runs on, including Windows
@@ -59,3 +59,33 @@ def get_current_user(
     if not user or not user.active:
         raise HTTPException(status_code=401, detail="Compte introuvable ou désactivé.")
     return user
+
+
+def require_superadmin(user: User = Depends(get_current_user)) -> User:
+    """User management and the permissions matrix itself are hardcoded to
+    superadmin-only — deliberately NOT one of the configurable
+    role_permissions rows, since letting that be delegable would let a
+    lower role grant itself more access."""
+    if user.role != UserRole.superadmin:
+        raise HTTPException(status_code=403, detail="Réservé aux super-administrateurs.")
+    return user
+
+
+def require_permission(resource: str, action: str):
+    """Dependency factory for the CRM's regular resources (leads, guides,
+    etc.) — a superadmin always passes; every other role is checked against
+    its row in role_permissions, defaulting to denied if that row somehow
+    doesn't exist (see main.py's seeding, which creates the full matrix on
+    first boot)."""
+    def _dependency(user: User = Depends(get_current_user), db: Session = Depends(get_db)) -> User:
+        if user.role == UserRole.superadmin:
+            return user
+        row = db.query(RolePermission).filter(
+            RolePermission.role == user.role,
+            RolePermission.resource == resource,
+            RolePermission.action == action,
+        ).first()
+        if not row or not row.allowed:
+            raise HTTPException(status_code=403, detail="Vous n'avez pas la permission d'effectuer cette action.")
+        return user
+    return _dependency

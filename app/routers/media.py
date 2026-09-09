@@ -3,12 +3,15 @@ from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
 from app.models import Guide, Author
 from app.config import settings
 
-router = APIRouter(prefix="/media", tags=["media"], dependencies=[Depends(get_current_user)])
+router = APIRouter(prefix="/media", tags=["media"])
+
+view_media = require_permission("media", "view")
+delete_media_perm = require_permission("media", "delete")
 
 UPLOAD_ROOT = Path("uploads")
 
@@ -50,7 +53,7 @@ def _usage_map(db: Session) -> dict[str, list[str]]:
 
 
 @router.get("/", response_model=list[MediaFile])
-def list_media(db: Session = Depends(get_db)):
+def list_media(db: Session = Depends(get_db), _user=Depends(view_media)):
     if not UPLOAD_ROOT.exists():
         return []
 
@@ -75,7 +78,7 @@ def list_media(db: Session = Depends(get_db)):
 
 
 @router.delete("/{file_path:path}", status_code=204)
-def delete_media(file_path: str, force: bool = Query(False), db: Session = Depends(get_db)):
+def delete_media(file_path: str, force: bool = Query(False), db: Session = Depends(get_db), _user=Depends(delete_media_perm)):
     root = UPLOAD_ROOT.resolve()
     target = (UPLOAD_ROOT / file_path).resolve()
     if target != root and root not in target.parents:

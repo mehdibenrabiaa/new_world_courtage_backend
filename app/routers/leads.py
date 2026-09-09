@@ -1,15 +1,22 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
 from app.email import send_lead_confirmation_email
-from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, User
+from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask
 from app.schemas import (
     LeadCreate, LeadContactOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut, LeadUpdate,
     LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
 )
 
 router = APIRouter(prefix="/leads", tags=["leads"])
+
+# Notes/tasks are lead sub-content, not their own resource — gated by the
+# same "leads" permission as the lead they belong to (edit to add/update,
+# view to just see the lead at all).
+view_leads = require_permission("leads", "view")
+edit_leads = require_permission("leads", "edit")
+delete_leads = require_permission("leads", "delete")
 
 
 def _lead_address(answers: list[dict]) -> str | None:
@@ -51,7 +58,7 @@ def list_leads(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user=Depends(view_leads),
 ):
     q = db.query(Lead).filter(Lead.deleted.is_(False))
     if status:
@@ -60,7 +67,7 @@ def list_leads(
 
 
 @router.get("/contacts", response_model=list[LeadContactOut])
-def list_lead_contacts(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def list_lead_contacts(db: Session = Depends(get_db), _user=Depends(view_leads)):
     """Every contact ever collected from a lead — kept even after the source
     lead is deleted (see LeadContact in models.py)."""
     contacts = db.query(LeadContact).order_by(LeadContact.created_at.desc()).all()
@@ -75,7 +82,7 @@ def list_lead_contacts(db: Session = Depends(get_db), _user: User = Depends(get_
 
 
 @router.get("/{lead_id}", response_model=LeadOut)
-def get_lead(lead_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def get_lead(lead_id: int, db: Session = Depends(get_db), _user=Depends(view_leads)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead introuvable.")
@@ -83,7 +90,7 @@ def get_lead(lead_id: int, db: Session = Depends(get_db), _user: User = Depends(
 
 
 @router.patch("/{lead_id}", response_model=LeadOut)
-def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead introuvable.")
@@ -109,7 +116,7 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
 
 
 @router.delete("/{lead_id}", status_code=204)
-def delete_lead(lead_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_lead(lead_id: int, db: Session = Depends(get_db), _user=Depends(delete_leads)):
     """Soft delete: hides the lead from list_leads but keeps it (and its
     answers) in the DB — nothing is ever permanently lost from here."""
     lead = db.get(Lead, lead_id)
@@ -122,7 +129,7 @@ def delete_lead(lead_id: int, db: Session = Depends(get_db), _user: User = Depen
 # ── Sticky notes ──────────────────────────────────────────────────────────────
 
 @router.post("/{lead_id}/notes", response_model=LeadNoteOut, status_code=201)
-def create_note(lead_id: int, payload: LeadNoteCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_note(lead_id: int, payload: LeadNoteCreate, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead introuvable.")
@@ -134,7 +141,7 @@ def create_note(lead_id: int, payload: LeadNoteCreate, db: Session = Depends(get
 
 
 @router.patch("/notes/{note_id}", response_model=LeadNoteOut)
-def update_note(note_id: int, payload: LeadNoteUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_note(note_id: int, payload: LeadNoteUpdate, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     note = db.get(LeadNote, note_id)
     if not note:
         raise HTTPException(status_code=404, detail="Note introuvable.")
@@ -146,7 +153,7 @@ def update_note(note_id: int, payload: LeadNoteUpdate, db: Session = Depends(get
 
 
 @router.delete("/notes/{note_id}", status_code=204)
-def delete_note(note_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_note(note_id: int, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     note = db.get(LeadNote, note_id)
     if not note:
         raise HTTPException(status_code=404, detail="Note introuvable.")
@@ -157,7 +164,7 @@ def delete_note(note_id: int, db: Session = Depends(get_db), _user: User = Depen
 # ── Tasks ─────────────────────────────────────────────────────────────────────
 
 @router.post("/{lead_id}/tasks", response_model=LeadTaskOut, status_code=201)
-def create_task(lead_id: int, payload: LeadTaskCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_task(lead_id: int, payload: LeadTaskCreate, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     lead = db.get(Lead, lead_id)
     if not lead:
         raise HTTPException(status_code=404, detail="Lead introuvable.")
@@ -169,7 +176,7 @@ def create_task(lead_id: int, payload: LeadTaskCreate, db: Session = Depends(get
 
 
 @router.patch("/tasks/{task_id}", response_model=LeadTaskOut)
-def update_task(task_id: int, payload: LeadTaskUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_task(task_id: int, payload: LeadTaskUpdate, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     task = db.get(LeadTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Tâche introuvable.")
@@ -186,7 +193,7 @@ def update_task(task_id: int, payload: LeadTaskUpdate, db: Session = Depends(get
 
 
 @router.delete("/tasks/{task_id}", status_code=204)
-def delete_task(task_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_task(task_id: int, db: Session = Depends(get_db), _user=Depends(edit_leads)):
     task = db.get(LeadTask, task_id)
     if not task:
         raise HTTPException(status_code=404, detail="Tâche introuvable.")

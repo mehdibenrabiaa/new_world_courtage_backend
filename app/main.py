@@ -6,8 +6,11 @@ from sqlalchemy import text, inspect
 from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, engine
-from app.models import Consultant, Lead, LeadContact
-from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants, auth
+from app.models import (
+    Consultant, Lead, LeadContact, PermissionAction, PermissionResource,
+    RolePermission, User, UserRole,
+)
+from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants, auth, users, permissions
 
 # The questionnaire feature moved from a fully dynamic question model
 # (type/options/rules/draft-publish, all admin-defined) to a fixed catalog
@@ -42,6 +45,14 @@ with engine.connect() as _conn:
     _existing_tasks = [c["name"] for c in inspect(engine).get_columns("lead_tasks")]
     if "completed" not in _existing_tasks:
         _conn.execute(text("ALTER TABLE lead_tasks ADD COLUMN completed BOOLEAN NOT NULL DEFAULT FALSE"))
+        _conn.commit()
+
+    # "users" pre-dates the role-based-access-control feature — role_permissions
+    # is a brand-new table so create_all above already created the Postgres
+    # `userrole` enum type for it; reuse that same type here.
+    _existing_users = [c["name"] for c in inspect(engine).get_columns("users")]
+    if "role" not in _existing_users:
+        _conn.execute(text("ALTER TABLE users ADD COLUMN role userrole NOT NULL DEFAULT 'consultant'"))
         _conn.commit()
 
 # Postgres enums are a fixed native type — adding a Python enum member (e.g.
@@ -79,6 +90,44 @@ with Session(engine) as _session:
         ])
         _session.commit()
 
+# Bootstrap: someone has to be able to log in and configure the permissions
+# matrix in the first place. If no superadmin exists yet (a brand new DB, or
+# one where the only account pre-dates roles and got the "consultant"
+# column default), promote whoever has the oldest account.
+with Session(engine) as _session:
+    if _session.query(User).filter(User.role == UserRole.superadmin).count() == 0:
+        _first_user = _session.query(User).order_by(User.id.asc()).first()
+        if _first_user:
+            _first_user.role = UserRole.superadmin
+            _session.commit()
+
+# Seed default role permissions on first boot — a superadmin can change any
+# of this afterward from the CRM's Permissions page. superadmin itself is
+# never seeded here: it always passes every check (see app/auth.py).
+with Session(engine) as _session:
+    if _session.query(RolePermission).count() == 0:
+        _all_actions = {a.value for a in PermissionAction}
+        _defaults: dict[UserRole, dict[PermissionResource, set[str]]] = {
+            UserRole.admin: {r: set(_all_actions) for r in PermissionResource},
+            UserRole.supervisor: {r: {"view", "create", "edit"} for r in PermissionResource},
+            UserRole.consultant: {
+                PermissionResource.leads: {"view", "create", "edit"},
+                PermissionResource.contacts: {"view"},
+                PermissionResource.questionnaires: {"view"},
+                PermissionResource.guides: set(),
+                PermissionResource.authors: set(),
+                PermissionResource.media: set(),
+            },
+        }
+        _rows = [
+            RolePermission(role=role, resource=resource, action=action, allowed=action.value in allowed_actions)
+            for role, resource_map in _defaults.items()
+            for resource, allowed_actions in resource_map.items()
+            for action in PermissionAction
+        ]
+        _session.add_all(_rows)
+        _session.commit()
+
 # Ensure upload directories exist
 os.makedirs("uploads/guides", exist_ok=True)
 os.makedirs("uploads/authors", exist_ok=True)
@@ -106,6 +155,8 @@ app.add_middleware(
 )
 
 app.include_router(auth.router, prefix="/api")
+app.include_router(users.router, prefix="/api")
+app.include_router(permissions.router, prefix="/api")
 app.include_router(leads.router, prefix="/api")
 app.include_router(contacts.router, prefix="/api")
 app.include_router(guides.router, prefix="/api")

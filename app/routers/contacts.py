@@ -1,11 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
-from app.models import Contact, User
+from app.models import Contact
 from app.schemas import ContactCreate, ContactOut
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
+
+view_contacts = require_permission("contacts", "view")
+edit_contacts = require_permission("contacts", "edit")
+delete_contacts = require_permission("contacts", "delete")
 
 
 @router.post("/", response_model=ContactOut, status_code=201)
@@ -23,7 +27,7 @@ def list_contacts(
     skip: int = 0,
     limit: int = 100,
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user=Depends(view_contacts),
 ):
     q = db.query(Contact)
     if unread_only:
@@ -32,7 +36,7 @@ def list_contacts(
 
 
 @router.get("/{contact_id}", response_model=ContactOut)
-def get_contact(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def get_contact(contact_id: int, db: Session = Depends(get_db), _user=Depends(view_contacts)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
@@ -40,7 +44,7 @@ def get_contact(contact_id: int, db: Session = Depends(get_db), _user: User = De
 
 
 @router.patch("/{contact_id}/read", response_model=ContactOut)
-def mark_read(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def mark_read(contact_id: int, db: Session = Depends(get_db), _user=Depends(edit_contacts)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
@@ -51,7 +55,7 @@ def mark_read(contact_id: int, db: Session = Depends(get_db), _user: User = Depe
 
 
 @router.delete("/{contact_id}", status_code=204)
-def delete_contact(contact_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_contact(contact_id: int, db: Session = Depends(get_db), _user=Depends(delete_contacts)):
     contact = db.get(Contact, contact_id)
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")

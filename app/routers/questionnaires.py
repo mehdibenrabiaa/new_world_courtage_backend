@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
-from app.models import Questionnaire, Question, User
+from app.models import Questionnaire, Question
 from app.question_catalog import get_catalog, get_catalog_entry
 from app.schemas import (
     QuestionnaireCreate, QuestionnaireUpdate, QuestionnaireOut,
@@ -10,6 +10,11 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/questionnaires", tags=["questionnaires"])
+
+view_questionnaires = require_permission("questionnaires", "view")
+create_questionnaires = require_permission("questionnaires", "create")
+edit_questionnaires = require_permission("questionnaires", "edit")
+delete_questionnaires = require_permission("questionnaires", "delete")
 
 
 def _get_questionnaire_or_404(slug: str, db: Session) -> Questionnaire:
@@ -78,13 +83,13 @@ def _questionnaire_out(questionnaire: Questionnaire) -> QuestionnaireOut:
 
 
 @router.get("", response_model=list[QuestionnaireOut])
-def list_questionnaires(db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def list_questionnaires(db: Session = Depends(get_db), _user=Depends(view_questionnaires)):
     questionnaires = db.query(Questionnaire).order_by(Questionnaire.name.asc()).all()
     return [_questionnaire_out(q) for q in questionnaires]
 
 
 @router.post("", response_model=QuestionnaireOut, status_code=201)
-def create_questionnaire(payload: QuestionnaireCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_questionnaire(payload: QuestionnaireCreate, db: Session = Depends(get_db), _user=Depends(create_questionnaires)):
     existing = db.query(Questionnaire).filter(Questionnaire.slug == payload.slug).first()
     if existing:
         raise HTTPException(status_code=409, detail="Un questionnaire avec ce slug existe déjà.")
@@ -96,12 +101,12 @@ def create_questionnaire(payload: QuestionnaireCreate, db: Session = Depends(get
 
 
 @router.get("/{slug}", response_model=QuestionnaireOut)
-def get_questionnaire(slug: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def get_questionnaire(slug: str, db: Session = Depends(get_db), _user=Depends(view_questionnaires)):
     return _questionnaire_out(_get_questionnaire_or_404(slug, db))
 
 
 @router.patch("/{slug}", response_model=QuestionnaireOut)
-def update_questionnaire(slug: str, payload: QuestionnaireUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_questionnaire(slug: str, payload: QuestionnaireUpdate, db: Session = Depends(get_db), _user=Depends(edit_questionnaires)):
     questionnaire = _get_questionnaire_or_404(slug, db)
 
     if payload.slug and payload.slug != questionnaire.slug:
@@ -119,7 +124,7 @@ def update_questionnaire(slug: str, payload: QuestionnaireUpdate, db: Session = 
 
 
 @router.get("/{slug}/catalog", response_model=list[CatalogEntryOut])
-def list_available_catalog_entries(slug: str, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def list_available_catalog_entries(slug: str, db: Session = Depends(get_db), _user=Depends(view_questionnaires)):
     """Catalog entries not yet included in this questionnaire — what the CRM's
     "add a question" picker offers."""
     questionnaire = _get_questionnaire_or_404(slug, db)
@@ -141,7 +146,7 @@ def list_published_questions(slug: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{slug}/questions", response_model=QuestionOut, status_code=201)
-def add_question(slug: str, payload: QuestionAdd, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def add_question(slug: str, payload: QuestionAdd, db: Session = Depends(get_db), _user=Depends(edit_questionnaires)):
     questionnaire = _get_questionnaire_or_404(slug, db)
 
     entry = get_catalog_entry(questionnaire.slug, payload.catalog_key)
@@ -161,7 +166,7 @@ def add_question(slug: str, payload: QuestionAdd, db: Session = Depends(get_db),
 
 
 @router.patch("/questions/{question_id}", response_model=QuestionOut)
-def update_question_wording(question_id: int, payload: QuestionWordingUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_question_wording(question_id: int, payload: QuestionWordingUpdate, db: Session = Depends(get_db), _user=Depends(edit_questionnaires)):
     question = _get_question_or_404(question_id, db)
     questionnaire = db.get(Questionnaire, question.questionnaire_id)
 
@@ -181,7 +186,7 @@ def update_question_wording(question_id: int, payload: QuestionWordingUpdate, db
 
 
 @router.delete("/questions/{question_id}", status_code=204)
-def remove_question(question_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def remove_question(question_id: int, db: Session = Depends(get_db), _user=Depends(delete_questionnaires)):
     question = _get_question_or_404(question_id, db)
     db.delete(question)
     db.commit()

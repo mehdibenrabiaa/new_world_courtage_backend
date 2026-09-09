@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, field_validator
-from app.models import LeadStatus, LeadType, GuideStatus
+from app.models import LeadStatus, LeadType, GuideStatus, UserRole, PermissionResource, PermissionAction
 
 NoteColor = Literal["yellow", "pink", "blue", "green", "purple", "orange"]
 
@@ -366,6 +366,9 @@ class UserOut(BaseModel):
     id: int
     name: str
     email: str
+    role: UserRole
+    active: bool
+    created_at: datetime
 
     model_config = {"from_attributes": True}
 
@@ -374,6 +377,71 @@ class TokenOut(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class MeOut(UserOut):
+    """GET /api/auth/me's response — UserOut plus this user's own resolved
+    permissions (role -> {resource: [allowed actions]}), so the CRM can gate
+    its UI (e.g. hide a Delete button) without a second round-trip. A
+    superadmin gets every resource/action listed as allowed, computed here
+    rather than stored, since superadmin is never in role_permissions."""
+    permissions: dict[str, list[str]]
+
+
+class UserCreate(BaseModel):
+    name: str
+    email: str
+    password: str
+    role: UserRole = UserRole.consultant
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Le nom est requis.")
+        return v.strip()
+
+    @field_validator("email")
+    @classmethod
+    def email_normalize(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not v:
+            raise ValueError("L'email est requis.")
+        return v
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Le mot de passe doit contenir au moins 8 caractères.")
+        return v
+
+
+class UserUpdate(BaseModel):
+    name: str | None = None
+    role: UserRole | None = None
+    active: bool | None = None
+    password: str | None = None
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str | None) -> str | None:
+        if v is not None and len(v) < 8:
+            raise ValueError("Le mot de passe doit contenir au moins 8 caractères.")
+        return v
+
+
+class RolePermissionOut(BaseModel):
+    role: UserRole
+    resource: PermissionResource
+    action: PermissionAction
+    allowed: bool
+
+    model_config = {"from_attributes": True}
+
+
+class RolePermissionUpdate(BaseModel):
+    allowed: bool
 
 
 # ── Consultants / booking ────────────────────────────────────────────────────

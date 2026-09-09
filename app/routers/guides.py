@@ -2,15 +2,20 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.orm import Session
-from app.auth import get_current_user
+from app.auth import require_permission
 from app.database import get_db
-from app.models import Guide, GuideStatus, User
+from app.models import Guide, GuideStatus
 from app.schemas import GuideCreate, GuideOut, GuideUpdate
 from app.config import settings
 
 UPLOAD_DIR = Path("uploads/guides")
 
 router = APIRouter(prefix="/guides", tags=["guides"])
+
+view_guides = require_permission("guides", "view")
+create_guides = require_permission("guides", "create")
+edit_guides = require_permission("guides", "edit")
+delete_guides = require_permission("guides", "delete")
 
 
 @router.get("/", response_model=list[GuideOut])
@@ -38,7 +43,7 @@ def get_guide_by_slug(slug: str, db: Session = Depends(get_db)):
 
 
 @router.get("/{guide_id}", response_model=GuideOut)
-def get_guide(guide_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def get_guide(guide_id: int, db: Session = Depends(get_db), _user=Depends(view_guides)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")
@@ -46,7 +51,7 @@ def get_guide(guide_id: int, db: Session = Depends(get_db), _user: User = Depend
 
 
 @router.post("/", response_model=GuideOut, status_code=201)
-def create_guide(payload: GuideCreate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def create_guide(payload: GuideCreate, db: Session = Depends(get_db), _user=Depends(create_guides)):
     existing = db.query(Guide).filter(Guide.slug == payload.slug).first()
     if existing:
         raise HTTPException(status_code=409, detail="Un guide avec ce slug existe déjà.")
@@ -58,7 +63,7 @@ def create_guide(payload: GuideCreate, db: Session = Depends(get_db), _user: Use
 
 
 @router.patch("/{guide_id}", response_model=GuideOut)
-def update_guide(guide_id: int, payload: GuideUpdate, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def update_guide(guide_id: int, payload: GuideUpdate, db: Session = Depends(get_db), _user=Depends(edit_guides)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")
@@ -74,7 +79,7 @@ async def upload_guide_image(
     guide_id: int,
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    _user: User = Depends(get_current_user),
+    _user=Depends(edit_guides),
 ):
     guide = db.get(Guide, guide_id)
     if not guide:
@@ -103,7 +108,7 @@ async def upload_guide_image(
 
 
 @router.delete("/{guide_id}", status_code=204)
-def delete_guide(guide_id: int, db: Session = Depends(get_db), _user: User = Depends(get_current_user)):
+def delete_guide(guide_id: int, db: Session = Depends(get_db), _user=Depends(delete_guides)):
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")

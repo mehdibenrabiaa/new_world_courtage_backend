@@ -1,9 +1,36 @@
 from datetime import datetime, timezone
 from typing import Any
-from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum, ForeignKey
+from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
+
+
+class UserRole(str, enum.Enum):
+    """A fixed staff hierarchy, not user-definable roles. superadmin always
+    has every permission (hardcoded, never stored in role_permissions) —
+    the other three are configurable via the permissions matrix, editable
+    only by a superadmin (see app/routers/permissions.py)."""
+    superadmin = "superadmin"
+    admin = "admin"
+    supervisor = "supervisor"
+    consultant = "consultant"
+
+
+class PermissionResource(str, enum.Enum):
+    leads = "leads"
+    contacts = "contacts"
+    guides = "guides"
+    authors = "authors"
+    media = "media"
+    questionnaires = "questionnaires"
+
+
+class PermissionAction(str, enum.Enum):
+    view = "view"
+    create = "create"
+    edit = "edit"
+    delete = "delete"
 
 
 class LeadStatus(str, enum.Enum):
@@ -285,8 +312,9 @@ class ConsultantBooking(Base):
 
 class User(Base):
     """A CRM staff account. Created via the create_user management script
-    (not a public signup endpoint) — see app/auth.py for password hashing
-    and the JWT issued on login."""
+    or, once at least one superadmin exists, the CRM's own Users page
+    (superadmin-only) — see app/auth.py for password hashing and the JWT
+    issued on login."""
 
     __tablename__ = "users"
 
@@ -294,10 +322,28 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(120))
     email: Mapped[str] = mapped_column(String(120), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
+    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.consultant)
     active: Mapped[bool] = mapped_column(default=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class RolePermission(Base):
+    """Whether a given (non-superadmin) role may perform one action on one
+    resource — the matrix a superadmin edits from the CRM's Permissions
+    page. superadmin itself is never represented here: it's hardcoded to
+    always pass in app/auth.py's require_permission, so it can't be
+    misconfigured into locking itself out."""
+
+    __tablename__ = "role_permissions"
+    __table_args__ = (UniqueConstraint("role", "resource", "action", name="uq_role_permission"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), index=True)
+    resource: Mapped[PermissionResource] = mapped_column(SAEnum(PermissionResource))
+    action: Mapped[PermissionAction] = mapped_column(SAEnum(PermissionAction))
+    allowed: Mapped[bool] = mapped_column(default=False)
 
 
 class Contact(Base):
