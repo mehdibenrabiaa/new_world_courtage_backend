@@ -114,6 +114,18 @@ def list_lead_contacts(db: Session = Depends(get_db), _user=Depends(view_leads))
     ]
 
 
+@router.delete("/contacts/{contact_id}", status_code=204)
+def delete_lead_contact(contact_id: int, db: Session = Depends(get_db), _user=Depends(delete_leads)):
+    """Delete a collected-contact snapshot outright — unlike a lead itself,
+    there's no soft-delete/undo for these, they're just a record of raw
+    contact info someone submitted."""
+    contact = db.query(LeadContact).filter(LeadContact.id == contact_id).first()
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable.")
+    db.delete(contact)
+    db.commit()
+
+
 @router.get("/assignable-users", response_model=list[LeadAssigneeOut])
 def list_assignable_users(db: Session = Depends(get_db), user=Depends(view_leads)):
     """Who a lead can be handed to — the same set of people who are allowed
