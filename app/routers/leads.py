@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 from app.auth import require_permission
 from app.database import get_db
 from app.email import send_lead_confirmation_email
-from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, User, UserRole
+from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, LeadType, User, UserRole
 from app.schemas import (
     LeadCreate, LeadAssigneeOut, LeadContactOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut, LeadUpdate,
     LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
@@ -82,20 +82,35 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
 
 @router.get("/", response_model=list[LeadOut])
 def list_leads(
+    response: Response,
     status: LeadStatus | None = Query(None),
+    type: LeadType | None = Query(None),
     assigned_to_id: int | None = Query(None),
-    skip: int = 0,
-    limit: int = 100,
+    unassigned: bool = Query(False),
+    search: str | None = Query(None),
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
     db: Session = Depends(get_db),
     user=Depends(view_leads),
 ):
     q = db.query(Lead).filter(Lead.deleted.is_(False))
     if status:
         q = q.filter(Lead.status == status)
+    if type:
+        q = q.filter(Lead.type == type)
     if user.role == UserRole.consultant:
         q = q.filter(Lead.assigned_to_id == user.id)
+    elif unassigned:
+        q = q.filter(Lead.assigned_to_id.is_(None))
     elif assigned_to_id is not None:
         q = q.filter(Lead.assigned_to_id == assigned_to_id)
+    if search:
+        like = f"%{search}%"
+        q = q.filter(Lead.name.ilike(like) | Lead.email.ilike(like) | Lead.phone.ilike(like))
+    # The table paginates server-side (see the CRM's leads page) — the
+    # frontend needs the total match count (before skip/limit) to know how
+    # many pages there are, not just the page it got back.
+    response.headers["X-Total-Count"] = str(q.count())
     return q.order_by(Lead.created_at.desc()).offset(skip).limit(limit).all()
 
 

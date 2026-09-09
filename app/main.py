@@ -187,6 +187,10 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    # Browser JS can't read a response header via fetch() unless it's
+    # explicitly exposed, even same-origin-looking ones like this pagination
+    # count (see routers/leads.py's list_leads).
+    expose_headers=["X-Total-Count"],
     # Chromium's Private Network Access check treats a page on one localhost
     # port calling another (e.g. the site on :3000 calling this API on :8000)
     # as a public->private-network request and preflights it separately —
