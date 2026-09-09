@@ -34,6 +34,11 @@ class LeadCreate(BaseModel):
     siret: str | None = None
     activite: str | None = None
     source: str | None = None
+    # Only ever set by the CRM (a consultant creating a lead manually
+    # auto-assigns it to themselves so they can still see it afterward —
+    # see routers/leads.py). The public site's own submissions never send
+    # this, so it defaults to unassigned.
+    assigned_to_id: int | None = None
     answers: list[LeadAnswerIn] = []
 
     @field_validator("phone")
@@ -55,6 +60,12 @@ class LeadUpdate(BaseModel):
     permis: str | None = None
     siret: str | None = None
     activite: str | None = None
+    # Reassignment — stripped out server-side unless the caller is
+    # superadmin/admin (see update_lead). 0 is not a valid user id, so it's
+    # used as an explicit "unassign" sentinel distinct from "field omitted";
+    # None here just means "don't touch this field".
+    assigned_to_id: int | None = None
+    unassign: bool = False
 
 
 class LeadNoteCreate(BaseModel):
@@ -116,6 +127,14 @@ class LeadContactOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LeadAssigneeOut(BaseModel):
+    id: int
+    name: str
+    email: str
+
+    model_config = {"from_attributes": True}
+
+
 class LeadOut(BaseModel):
     id: int
     type: LeadType
@@ -129,6 +148,7 @@ class LeadOut(BaseModel):
     siret: str | None
     activite: str | None
     source: str | None
+    assigned_to: LeadAssigneeOut | None = None
     answers: list[LeadAnswerOut] = []
     sticky_notes: list[LeadNoteOut] = []
     tasks: list[LeadTaskOut] = []

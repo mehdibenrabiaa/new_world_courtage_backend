@@ -41,6 +41,11 @@ with engine.connect() as _conn:
     if "deleted" not in _existing_leads:
         _conn.execute(text("ALTER TABLE leads ADD COLUMN deleted BOOLEAN NOT NULL DEFAULT FALSE"))
         _conn.commit()
+    if "assigned_to_id" not in _existing_leads:
+        _conn.execute(text(
+            "ALTER TABLE leads ADD COLUMN assigned_to_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
+        ))
+        _conn.commit()
 
     _existing_tasks = [c["name"] for c in inspect(engine).get_columns("lead_tasks")]
     if "completed" not in _existing_tasks:

@@ -84,6 +84,14 @@ class Lead(Base):
     # "Deleting" a lead from the CRM only hides it (excluded from list_leads) —
     # it stays in the DB so nothing is ever lost to an accidental click.
     deleted: Mapped[bool] = mapped_column(default=False)
+    # Who's working this lead — a consultant only ever sees/acts on leads
+    # assigned to them (enforced in routers/leads.py), and only superadmin/
+    # admin can set this. NULL means unassigned (the default for every
+    # public-site submission, which never sets it). ON DELETE SET NULL so
+    # removing a staff account doesn't take their leads down with them.
+    assigned_to_id: Mapped[int | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -102,6 +110,7 @@ class Lead(Base):
     tasks: Mapped[list["LeadTask"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="LeadTask.due_date"
     )
+    assigned_to: Mapped["User | None"] = relationship(foreign_keys=[assigned_to_id], passive_deletes=True)
 
 
 class LeadAnswer(Base):
