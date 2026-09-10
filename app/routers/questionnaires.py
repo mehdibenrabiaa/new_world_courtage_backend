@@ -69,6 +69,7 @@ def _merge(question: Question, template: str, catalog_key_to_id: dict[str, int])
         card=entry.get("card", False),
         gate=entry.get("gate", False),
         products=entry.get("products"),
+        parent_key=entry.get("parent_key"),
         order=question.order,
         options=entry.get("options", []),
         rules=rules,

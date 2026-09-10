@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session, joinedload
 from app.auth import require_permission
 from app.database import get_db
 from app.email import send_lead_confirmation_email
-from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, LeadType, User, UserRole
+from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, LeadType, Notification, User, UserRole
 from app.schemas import (
     LeadCreate, LeadAssigneeOut, LeadContactOut, LeadListOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut,
     LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
@@ -19,6 +19,26 @@ edit_leads = require_permission("leads", "edit")
 delete_leads = require_permission("leads", "delete")
 
 CAN_ASSIGN = (UserRole.superadmin, UserRole.admin)
+
+
+def _notify_assigned(db: Session, lead: Lead, assignee: User, actor: User | None) -> None:
+    """Queue a notification for whoever a lead just got assigned to — not
+    committed here, piggybacks on the caller's own db.commit() so the
+    assignment and its notification land atomically. `actor` is who did the
+    assigning (None for the public-site create flow, which has no logged-in
+    user) — skipped when someone assigns a lead to themselves."""
+    if actor is not None and actor.id == assignee.id:
+        return
+    message = (
+        f"{actor.name} vous a assigné le lead « {lead.name} »." if actor
+        else f"Un nouveau lead vous a été assigné : « {lead.name} »."
+    )
+    db.add(Notification(
+        user_id=assignee.id,
+        type="lead_assigned",
+        message=message,
+        link=f"/dashboard/leads/{lead.id}",
+    ))
 
 
 def _lead_address(answers: list[dict]) -> str | None:
@@ -55,9 +75,11 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     # blindly from an arbitrary caller: silently drop anything that doesn't
     # resolve to a real, active account rather than erroring out a real
     # prospect's submission over it.
+    assignee = None
     if data.get("assigned_to_id") is not None:
         assignee = db.get(User, data["assigned_to_id"])
         if not assignee or not assignee.active:
+            assignee = None
             data["assigned_to_id"] = None
     lead = Lead(**data)
     answers = payload.model_dump()["answers"]
@@ -65,6 +87,10 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     db.add(lead)
     db.commit()
     db.refresh(lead)
+
+    if assignee:
+        _notify_assigned(db, lead, assignee, actor=None)
+        db.commit()
 
     # A LeadContact snapshot, not a live relationship, so it outlives the
     # lead (or any edits to it) — see the LeadContact docstring in models.py.
@@ -177,6 +203,7 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
             if not assignee or not assignee.active:
                 raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
             lead.assigned_to_id = assignee.id
+            _notify_assigned(db, lead, assignee, actor=user)
 
     for field, value in updates.items():
         setattr(lead, field, value)

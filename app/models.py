@@ -360,6 +360,26 @@ class RolePermission(Base):
     allowed: Mapped[bool] = mapped_column(default=False)
 
 
+class Notification(Base):
+    """A per-user notification, created by some backend action (currently
+    just lead assignment — see app/routers/leads.py) and read by the CRM's
+    notification bell, which polls for unread ones rather than anything
+    push-based."""
+
+    __tablename__ = "notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    type: Mapped[str] = mapped_column(String(50))
+    message: Mapped[str] = mapped_column(String(500))
+    # Where clicking the notification should take you, e.g. "/dashboard/leads/42".
+    link: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    read: Mapped[bool] = mapped_column(default=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
 class Contact(Base):
     __tablename__ = "contacts"
 

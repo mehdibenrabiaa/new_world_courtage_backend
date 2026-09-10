@@ -176,6 +176,19 @@ class LeadListOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+# ── Notifications ────────────────────────────────────────────────────────────
+
+class NotificationOut(BaseModel):
+    id: int
+    type: str
+    message: str
+    link: str | None
+    read: bool
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 # ── Guides ────────────────────────────────────────────────────────────────────
 
 class GuideCreate(BaseModel):
@@ -376,6 +389,8 @@ class QuestionOut(BaseModel):
     # products on the gate screen (see the "produits_interesses" gate
     # question) — None/omitted means it applies to every product.
     products: list[str] | None = None
+    # A conditional extension rendered within this parent question's block.
+    parent_key: str | None = None
     order: int
     options: list[CatalogOptionOut]
     rules: list[RuleOut] = []

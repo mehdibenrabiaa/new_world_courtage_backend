@@ -8,10 +8,12 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.database import Base, engine
 from app.models import (
-    Consultant, Lead, LeadContact, PermissionAction, PermissionResource,
+    Consultant, Lead, LeadContact, Notification, PermissionAction, PermissionResource,
     RolePermission, User, UserRole,
 )
-from app.routers import leads, contacts, guides, authors, media, questionnaires, consultants, auth, users, permissions
+from app.routers import (
+    leads, contacts, guides, authors, media, questionnaires, consultants, auth, users, permissions, notifications,
+)
 
 # The questionnaire feature moved from a fully dynamic question model
 # (type/options/rules/draft-publish, all admin-defined) to a fixed catalog
@@ -210,6 +212,7 @@ app.include_router(guides.router, prefix="/api")
 app.include_router(authors.router, prefix="/api")
 app.include_router(media.router, prefix="/api")
 app.include_router(consultants.router, prefix="/api")
+app.include_router(notifications.router, prefix="/api")
 # No "/api" prefix: matches the CRM's existing lib/api.ts calls for this feature.
 app.include_router(questionnaires.router)
 
