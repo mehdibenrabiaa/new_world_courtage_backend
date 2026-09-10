@@ -92,6 +92,7 @@ class Lead(Base):
     assigned_to_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    document_upload_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -109,6 +110,9 @@ class Lead(Base):
     )
     tasks: Mapped[list["LeadTask"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="LeadTask.due_date"
+    )
+    documents: Mapped[list["LeadDocument"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LeadDocument.created_at.desc()"
     )
     assigned_to: Mapped["User | None"] = relationship(foreign_keys=[assigned_to_id], passive_deletes=True)
 
@@ -192,6 +196,24 @@ class LeadTask(Base):
     )
 
     lead: Mapped["Lead"] = relationship(back_populates="tasks")
+
+
+class LeadDocument(Base):
+    __tablename__ = "lead_documents"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id"), index=True)
+    document_label: Mapped[str] = mapped_column(String(200))
+    original_filename: Mapped[str] = mapped_column(String(300))
+    stored_filename: Mapped[str] = mapped_column(String(300))
+    content_type: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    size_bytes: Mapped[int] = mapped_column()
+    file_url: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    lead: Mapped["Lead"] = relationship(back_populates="documents")
 
 
 class GuideStatus(str, enum.Enum):

@@ -136,6 +136,19 @@ class LeadAssigneeOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class LeadDocumentOut(BaseModel):
+    id: int
+    lead_id: int
+    document_label: str
+    original_filename: str
+    content_type: str | None
+    size_bytes: int
+    file_url: str
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class LeadOut(BaseModel):
     id: int
     type: LeadType
@@ -153,6 +166,8 @@ class LeadOut(BaseModel):
     answers: list[LeadAnswerOut] = []
     sticky_notes: list[LeadNoteOut] = []
     tasks: list[LeadTaskOut] = []
+    documents: list[LeadDocumentOut] = []
+    document_upload_token: str | None = None
     created_at: datetime
     updated_at: datetime
 

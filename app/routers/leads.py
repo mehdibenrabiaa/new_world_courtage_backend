@@ -1,12 +1,19 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+import hashlib
+import hmac
+import re
+import secrets
+import uuid
+from pathlib import Path
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from sqlalchemy.orm import Session, joinedload
 from app.auth import require_permission
+from app.config import settings
 from app.database import get_db
 from app.email import send_lead_confirmation_email
-from app.models import Lead, LeadAnswer, LeadContact, LeadNote, LeadStatus, LeadTask, LeadType, Notification, User, UserRole
+from app.models import Lead, LeadAnswer, LeadContact, LeadDocument, LeadNote, LeadStatus, LeadTask, LeadType, Notification, User, UserRole
 from app.schemas import (
     LeadCreate, LeadAssigneeOut, LeadContactOut, LeadListOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut,
-    LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
+    LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate, LeadDocumentOut,
 )
 
 router = APIRouter(prefix="/leads", tags=["leads"])
@@ -19,6 +26,9 @@ edit_leads = require_permission("leads", "edit")
 delete_leads = require_permission("leads", "delete")
 
 CAN_ASSIGN = (UserRole.superadmin, UserRole.admin)
+LEAD_UPLOAD_ROOT = Path("uploads/leads")
+MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
+ALLOWED_DOCUMENT_EXTENSIONS = {".pdf", ".jpg", ".jpeg", ".png"}
 
 
 def _notify_assigned(db: Session, lead: Lead, assignee: User, actor: User | None) -> None:
@@ -81,7 +91,11 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
         if not assignee or not assignee.active:
             assignee = None
             data["assigned_to_id"] = None
-    lead = Lead(**data)
+    upload_token = secrets.token_urlsafe(32)
+    lead = Lead(
+        **data,
+        document_upload_token_hash=hashlib.sha256(upload_token.encode()).hexdigest(),
+    )
     answers = payload.model_dump()["answers"]
     lead.answers = [LeadAnswer(**a) for a in answers]
     db.add(lead)
@@ -103,7 +117,68 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     if lead.email:
         send_lead_confirmation_email(lead.name, lead.email, lead.type.value)
 
+    lead.document_upload_token = upload_token
     return lead
+
+
+@router.post("/{lead_id}/documents", response_model=LeadDocumentOut, status_code=201)
+async def upload_lead_document(
+    lead_id: int,
+    file: UploadFile = File(...),
+    document_label: str = Form(...),
+    upload_token: str = Form(...),
+    db: Session = Depends(get_db),
+):
+    lead = db.get(Lead, lead_id)
+    if not lead or lead.deleted:
+        raise HTTPException(status_code=404, detail="Lead introuvable.")
+
+    token_hash = hashlib.sha256(upload_token.encode()).hexdigest()
+    if not lead.document_upload_token_hash or not hmac.compare_digest(lead.document_upload_token_hash, token_hash):
+        raise HTTPException(status_code=403, detail="Lien d'envoi invalide.")
+
+    original_filename = Path(file.filename or "document").name
+    extension = Path(original_filename).suffix.lower()
+    if extension not in ALLOWED_DOCUMENT_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Format non pris en charge. Utilisez un PDF, JPG ou PNG.")
+
+    contents = await file.read(MAX_DOCUMENT_BYTES + 1)
+    if not contents:
+        raise HTTPException(status_code=400, detail="Le fichier est vide.")
+    if len(contents) > MAX_DOCUMENT_BYTES:
+        raise HTTPException(status_code=400, detail="Le fichier ne doit pas dépasser 10 Mo.")
+
+    safe_label = re.sub(r"\s+", " ", document_label).strip()[:200]
+    if not safe_label:
+        raise HTTPException(status_code=400, detail="Le type de document est requis.")
+
+    lead_dir = LEAD_UPLOAD_ROOT / str(lead.id)
+    lead_dir.mkdir(parents=True, exist_ok=True)
+    stored_filename = f"{uuid.uuid4().hex}{extension}"
+    destination = lead_dir / stored_filename
+    destination.write_bytes(contents)
+
+    document = LeadDocument(
+        lead_id=lead.id,
+        document_label=safe_label,
+        original_filename=original_filename[:300],
+        stored_filename=stored_filename,
+        content_type=file.content_type,
+        size_bytes=len(contents),
+        file_url=f"{settings.base_url}/uploads/leads/{lead.id}/{stored_filename}",
+    )
+    db.add(document)
+    db.commit()
+    db.refresh(document)
+    return document
+
+
+@router.get("/{lead_id}/documents", response_model=list[LeadDocumentOut])
+def list_lead_documents(lead_id: int, db: Session = Depends(get_db), user=Depends(view_leads)):
+    lead = _lead_or_404(lead_id, db, user)
+    return lead.documents
+
+
 
 
 @router.get("/", response_model=list[LeadListOut])

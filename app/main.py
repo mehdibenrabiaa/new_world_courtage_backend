@@ -49,6 +49,9 @@ with engine.connect() as _conn:
             "ALTER TABLE leads ADD COLUMN assigned_to_id INTEGER REFERENCES users(id) ON DELETE SET NULL"
         ))
         _conn.commit()
+    if "document_upload_token_hash" not in _existing_leads:
+        _conn.execute(text("ALTER TABLE leads ADD COLUMN document_upload_token_hash VARCHAR(64)"))
+        _conn.commit()
 
     _existing_tasks = [c["name"] for c in inspect(engine).get_columns("lead_tasks")]
     if "completed" not in _existing_tasks:
@@ -176,6 +179,7 @@ with Session(engine) as _session:
 # Ensure upload directories exist
 os.makedirs("uploads/guides", exist_ok=True)
 os.makedirs("uploads/authors", exist_ok=True)
+os.makedirs("uploads/leads", exist_ok=True)
 
 app = FastAPI(
     title="New World Courtage API",
