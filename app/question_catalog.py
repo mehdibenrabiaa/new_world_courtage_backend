@@ -165,7 +165,7 @@ CATALOGS: dict[str, list[dict]] = {
          "question": "Mobile"},
         {"key": "email_principal", "section": "Coordonnées", "type": "input", "input_type": "email",
          "question": "Email principal"},
-        {"key": "siret", "section": "Coordonnées", "type": "input", "input_type": "text",
+        {"key": "siret", "section": "Coordonnées", "type": "input", "input_type": "number",
          "question": "SIRET"},
         {"key": "pct_detention_capital", "section": "Coordonnées", "type": "input", "input_type": "number", "unit": "percent",
          "question": "% détention du capital"},
