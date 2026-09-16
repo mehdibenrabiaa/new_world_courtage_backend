@@ -91,7 +91,8 @@ with Session(engine) as _session:
         _session.commit()
 
 with engine.connect() as _conn:
-    _conn.execute(text("ALTER TABLE users ALTER COLUMN username SET NOT NULL"))
+    if engine.dialect.name == "postgresql":
+        _conn.execute(text("ALTER TABLE users ALTER COLUMN username SET NOT NULL"))
     _conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS ix_users_username_unique ON users (username)"))
     _conn.commit()
 
