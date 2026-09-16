@@ -148,7 +148,16 @@ with Session(engine) as _session:
 # SQLAlchemy's Enum column never has to deserialize a value with no
 # matching Python member.
 with engine.connect() as _conn:
-    _conn.execute(text("DELETE FROM role_permissions WHERE resource = 'questionnaires'"))
+    if engine.dialect.name == "postgresql":
+        # Postgres enums are a fixed native type — a fresh DB never had
+        # 'questionnaires' as a member (it was already gone from the Python
+        # enum before this ever ran against Postgres), so comparing the
+        # column directly against that literal is a type error. Cast to
+        # text first so the comparison is always valid regardless of what
+        # the enum currently allows.
+        _conn.execute(text("DELETE FROM role_permissions WHERE resource::text = 'questionnaires'"))
+    else:
+        _conn.execute(text("DELETE FROM role_permissions WHERE resource = 'questionnaires'"))
     _conn.commit()
 
 # Seed default role permissions on first boot — a superadmin can change any
