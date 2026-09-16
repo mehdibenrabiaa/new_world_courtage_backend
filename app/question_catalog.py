@@ -359,52 +359,10 @@ CATALOGS: dict[str, list[dict]] = {
         {"key": "garage_plaques_w_table", "section": "Flotte auto propre", "type": "input", "input_type": "text", "products": ["protect_garage"],
          "question": "Plaques W garage"},
 
-        # — Tarification — transcribed from the real Tarification tab of the
-        # broker's subscription tool (jsGarage.tarification). date_echeance,
-        # "Protection juridique socle de base" and "Producteur" were
-        # previously excluded (auto-computed / fixed-disabled / internal
-        # broker-staff field in the source tool) but are now included as
-        # plain user-editable fields per request — none of the source tool's
-        # special behavior (auto-compute, forced value, disabled state,
-        # broker picklist) is replicated here.
-        {"key": "effective_date", "section": "Tarification", "type": "input", "input_type": "date",
-         "question": "Choisir la date d'effet prévisionnelle"},
-        {"key": "date_echeance", "section": "Tarification", "type": "input", "input_type": "date",
-         "question": "Date d'échéance"},
-        {"key": "payment_frequency", "section": "Tarification", "type": "select",
-         "question": "Périodicité",
-         "options": [
-             {"label": "Mensuelle", "value": "monthly"}, {"label": "Trimestrielle", "value": "quarterly"},
-             {"label": "Semestrielle", "value": "biannual"}, {"label": "Annuelle", "value": "yearly"},
-         ]},
-        {"key": "payment_mode", "section": "Tarification", "type": "select",
-         "question": "Mode de règlement",
-         "options": [
-             {"label": "Prélèvement automatique", "value": "direct_debit"},
-             {"label": "Avis d'échéance", "value": "invoice"},
-         ]},
-        {"key": "pj_socle_base", "section": "Tarification", "type": "radio",
-         "question": "Protection juridique socle de base (incluse)",
-         "options": [{"label": "Oui", "value": "oui"}, {"label": "Non", "value": "non"}]},
-        {"key": "pj_optionnelle", "section": "Tarification", "type": "radio",
-         "question": "Souhaitez-vous la Protection Juridique Optionnelle « Fiscale, Sociale et Prud'homale » ?",
-         "options": [{"label": "Oui", "value": "oui"}, {"label": "Non", "value": "non"}]},
-        {"key": "choix_lci", "section": "Tarification", "type": "select",
-         "question": "Choix de LCI pour les véhicules confiés ou destinés à la vente",
-         "options": [
-             {"label": "200 000 €", "value": "200000"}, {"label": "320 000 €", "value": "320000"},
-             {"label": "Autre", "value": "autre"},
-         ]},
-        {"key": "exprimez_vous", "section": "Tarification", "type": "input", "input_type": "textarea", "required": False,
-         "question": "Exprimez-vous", "placeholder": "Une précision à ajouter sur votre demande ?"},
-        # No broker/producer list exists in this codebase to populate a real
-        # dropdown (the source tool's "Producteur" select pulls from an
-        # internal staff picklist) — plain text until that list is provided.
-        {"key": "producteur", "section": "Tarification", "type": "input", "input_type": "text",
-         "question": "Producteur", "hint": "Vous n'êtes pas dans la liste ? Cliquez-ici",
-         "placeholder": "Producteur en charge du dossier"},
-        {"key": "chiffre_affaires", "section": "Tarification", "type": "input", "input_type": "number", "unit": "eur",
-         "question": "Chiffre d'affaires", "placeholder": "Montant en €", "products": ["convoyeurs"]},
+        # — Tarification — removed. Replaced by the "Finalisation" pseudo-
+        # section (see CarInsuranceForm.js's finalStepLabel prop): no more
+        # pricing/payment questions here, this step is now just the explicit
+        # submit action followed by the booking calendar + document upload.
     ],
 }
 

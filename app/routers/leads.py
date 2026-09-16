@@ -5,6 +5,7 @@ import secrets
 import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session, joinedload
 from app.auth import require_permission
 from app.config import settings
@@ -177,6 +178,23 @@ async def upload_lead_document(
 def list_lead_documents(lead_id: int, db: Session = Depends(get_db), user=Depends(view_leads)):
     lead = _lead_or_404(lead_id, db, user)
     return lead.documents
+
+
+# The static /uploads mount serves the on-disk (random UUID) filename with no
+# Content-Disposition header, so a plain link to file_url downloads as
+# "83890d1a92fa4ea68b37f6507abd0bd9.pdf" — this route goes through the same
+# view-leads permission check and hands back the file under its real,
+# originally-uploaded name instead.
+@router.get("/{lead_id}/documents/{document_id}/download")
+def download_lead_document(lead_id: int, document_id: int, db: Session = Depends(get_db), user=Depends(view_leads)):
+    lead = _lead_or_404(lead_id, db, user)
+    document = next((d for d in lead.documents if d.id == document_id), None)
+    if not document:
+        raise HTTPException(status_code=404, detail="Document introuvable.")
+    path = LEAD_UPLOAD_ROOT / str(lead_id) / document.stored_filename
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Fichier introuvable.")
+    return FileResponse(path, filename=document.original_filename, media_type=document.content_type or "application/octet-stream")
 
 
 
