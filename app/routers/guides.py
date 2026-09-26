@@ -67,7 +67,14 @@ def update_guide(guide_id: int, payload: GuideUpdate, db: Session = Depends(get_
     guide = db.get(Guide, guide_id)
     if not guide:
         raise HTTPException(status_code=404, detail="Guide introuvable.")
-    for field, value in payload.model_dump(exclude_none=True).items():
+    # exclude_unset, not exclude_none — the CRM's editor always sends every
+    # field on save (see guides-store.ts's toApi/saveGuide), explicit `null`
+    # included whenever a field like "Édité par" is cleared back to "Aucun".
+    # exclude_none would silently drop that null and leave the old value in
+    # place forever, since it can't tell "clear this field" apart from
+    # "field omitted, don't touch it" — exclude_unset only drops fields the
+    # request body never mentioned at all, so an explicit null still clears.
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(guide, field, value)
     db.commit()
     db.refresh(guide)

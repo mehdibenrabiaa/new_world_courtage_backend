@@ -2,7 +2,7 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 from pydantic import BaseModel, EmailStr, field_validator
-from app.models import LeadStatus, LeadType, GuideStatus, UserRole, PermissionResource, PermissionAction
+from app.models import LeadStatus, LeadType, GuideStatus, UserRole, PermissionResource, PermissionAction, AccountType
 
 NoteColor = Literal["yellow", "pink", "blue", "green", "purple", "orange"]
 
@@ -35,6 +35,7 @@ class LeadCreate(BaseModel):
     siret: str | None = None
     activite: str | None = None
     source: str | None = None
+    deal_value: float | None = None
     # Only ever set by the CRM (a consultant creating a lead manually
     # auto-assigns it to themselves so they can still see it afterward —
     # see routers/leads.py). The public site's own submissions never send
@@ -61,6 +62,7 @@ class LeadUpdate(BaseModel):
     permis: str | None = None
     siret: str | None = None
     activite: str | None = None
+    deal_value: float | None = None
     # Reassignment — stripped out server-side unless the caller is
     # superadmin/admin (see update_lead). 0 is not a valid user id, so it's
     # used as an explicit "unassign" sentinel distinct from "field omitted";
@@ -136,6 +138,19 @@ class LeadAssigneeOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class TaskLeadRef(BaseModel):
+    id: int
+    name: str
+
+
+class LeadTaskWithLeadOut(LeadTaskOut):
+    """A task plus just enough about its lead to show in a cross-lead list
+    (the "Tâches" sidebar section) — who it's for and a link back to the
+    lead, without pulling in everything LeadOut carries."""
+    lead: TaskLeadRef
+    assigned_to: LeadAssigneeOut | None = None
+
+
 class LeadDocumentOut(BaseModel):
     id: int
     lead_id: int
@@ -145,6 +160,13 @@ class LeadDocumentOut(BaseModel):
     size_bytes: int
     file_url: str
     created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class LeadDuplicateOut(BaseModel):
+    id: int
+    name: str
 
     model_config = {"from_attributes": True}
 
@@ -162,6 +184,8 @@ class LeadOut(BaseModel):
     siret: str | None
     activite: str | None
     source: str | None
+    deal_value: float | None = None
+    duplicate_of: LeadDuplicateOut | None = None
     assigned_to: LeadAssigneeOut | None = None
     answers: list[LeadAnswerOut] = []
     sticky_notes: list[LeadNoteOut] = []
@@ -185,10 +209,46 @@ class LeadListOut(BaseModel):
     name: str
     phone: str
     email: str | None
+    deal_value: float | None = None
+    duplicate_of: LeadDuplicateOut | None = None
     assigned_to: LeadAssigneeOut | None = None
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class LeadActivityOut(BaseModel):
+    id: int
+    actor_name: str | None
+    action: str
+    field: str | None
+    old_value: str | None
+    new_value: str | None
+    description: str | None
+    created_at: datetime
+
+
+class ConsultantStatOut(BaseModel):
+    consultant_id: int
+    name: str
+    total_leads: int
+    converted_leads: int
+    conversion_rate: float
+    total_value: float
+    converted_value: float
+
+
+class LeadStatsOut(BaseModel):
+    """Aggregate KPIs for the dashboard — computed server-side (a single
+    grouped query) instead of the frontend fetching every lead just to
+    count them client-side."""
+    total_leads: int
+    by_status: dict[str, int]
+    conversion_rate: float
+    total_pipeline_value: float
+    converted_value: float
+    unread_contacts: int
+    by_consultant: list[ConsultantStatOut]
 
 
 # ── Notifications ────────────────────────────────────────────────────────────
@@ -444,8 +504,19 @@ class UserOut(BaseModel):
 
 class TokenOut(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str = "bearer"
     user: UserOut
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class RefreshedTokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
 
 
 class MeOut(UserOut):
@@ -560,6 +631,50 @@ class BookingOut(BaseModel):
     consultant_name: str
     created_at: datetime
 
+
+class ConsultantUnavailabilityOut(BaseModel):
+    id: int
+    consultant_id: int
+    date: str
+    time: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class ConsultantUnavailabilityCreate(BaseModel):
+    date: str
+    time: str | None = None  # None blocks the whole day
+
+
+class ConsultantBookingOut(BaseModel):
+    """A real, already-confirmed appointment — read-only from the calendar
+    editor's point of view (unlike ConsultantUnavailabilityOut, there's no
+    "unbook" action here); shown so a consultant/manager sees their actual
+    schedule, not just the deliberate blocks."""
+    id: int
+    date: str
+    time: str
+    lead_id: int | None
+    lead_name: str | None
+    created_at: datetime
+
+
+class ConsultantRef(BaseModel):
+    id: int
+    name: str
+
+
+class ConsultantBookingWithConsultantOut(ConsultantBookingOut):
+    """A booking plus who it's with — backs the "Rendez-vous" sidebar
+    section, which lists bookings across every consultant (for whoever can
+    see that) rather than one consultant's calendar at a time."""
+    consultant: ConsultantRef
+
+
+class ConsultantBookingReallocate(BaseModel):
+    new_consultant_id: int
+
     model_config = {"from_attributes": True}
 
 
@@ -591,3 +706,147 @@ class ContactOut(BaseModel):
     created_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+# ── Public-site accounts (Espace Client / Espace Partenaire) ──────────────────
+
+class AccountRegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    password: str
+    type: AccountType
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Le nom ne peut pas être vide.")
+        return v.strip()
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Le mot de passe doit contenir au moins 8 caractères.")
+        return v
+
+
+class AccountLoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class AccountOut(BaseModel):
+    id: int
+    name: str
+    email: str
+    type: AccountType
+    referral_code: str | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AccountTokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+    account: AccountOut
+
+
+class AccountRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class AccountRefreshedTokenOut(BaseModel):
+    access_token: str
+    refresh_token: str
+    token_type: str = "bearer"
+
+
+class AccountForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class AccountResetPasswordRequest(BaseModel):
+    token: str
+    password: str
+
+    @field_validator("password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Le mot de passe doit contenir au moins 8 caractères.")
+        return v
+
+
+class AccountLeadOut(BaseModel):
+    """A trimmed-down Lead for the client's own "Espace Client" — just
+    enough to show what they submitted and where it stands, none of the
+    internal CRM fields (assigned consultant, deal value, notes...)."""
+    id: int
+    type: LeadType
+    status: LeadStatus
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AccountReferralOut(BaseModel):
+    code: str
+    link: str
+
+
+class AccountUpdateRequest(BaseModel):
+    """PATCH /accounts/me — name/email both optional so a caller can send
+    just the one being changed. Actual password changes go through the
+    dedicated change-password endpoint (needs the current password) — but
+    an *email* change is just as sensitive (it's what "mot de passe oublié"
+    sends the reset link to), so current_password is required here too
+    whenever email is being changed on a password-having account. Without
+    that, a merely-still-valid access token (e.g. a leaked/stolen one)
+    would be enough to silently redirect the account's recovery email and
+    take it over — see routers/accounts.py's update_me."""
+    name: str | None = None
+    email: EmailStr | None = None
+    current_password: str | None = None
+
+    @field_validator("name")
+    @classmethod
+    def name_not_empty(cls, v: str | None) -> str | None:
+        if v is not None and not v.strip():
+            raise ValueError("Le nom ne peut pas être vide.")
+        return v.strip() if v else v
+
+
+class AccountChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_min_length(cls, v: str) -> str:
+        if len(v) < 8:
+            raise ValueError("Le mot de passe doit contenir au moins 8 caractères.")
+        return v
+
+
+class AdminAccountOut(BaseModel):
+    """CRM-facing view of a public-site account (routers/crm_accounts.py) —
+    adds the staff-only fields AccountOut deliberately leaves out
+    (active, oauth_provider) plus a computed leads_count, since "how many
+    devis has this client actually submitted" is the first thing a
+    consultant looking at this list wants to know."""
+    id: int
+    name: str
+    email: str
+    type: AccountType
+    referral_code: str | None
+    active: bool
+    oauth_provider: str | None
+    leads_count: int
+    created_at: datetime
+
+
+class AdminAccountDetailOut(AdminAccountOut):
+    leads: list[AccountLeadOut]

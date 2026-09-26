@@ -4,8 +4,15 @@ sqlalchemy>=2.0.0
 alembic>=1.13.0
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
+email-validator>=2.0.0
 python-dotenv>=1.0.0
 python-multipart>=0.0.9
 psycopg2-binary>=2.9.9
 passlib>=1.7.4
 pyjwt>=2.9.0
+pytest>=8.0.0
+httpx>=0.27.0
+# ES256 signing (Apple "Sign in with Apple" client secret) and RS256
+# verification (Apple id_token, via jwt.PyJWKClient) both need this — pyjwt
+# only supports HS256 without it.
+cryptography>=42.0.0

@@ -18,6 +18,26 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://localhost:3001,http://localhost:3002,https://crm.newworldcourtage.fr,https://newworldcourtage.fr,https://www.newworldcourtage.fr"
     secret_key: str = "change-me-in-production"
     base_url: str = "http://localhost:8000"
+    # Where account-facing links point (password reset emails, OAuth
+    # callback redirects back to the site) — the public marketing/quote
+    # site, not the CRM.
+    frontend_url: str = "http://localhost:3000"
+
+    # Social sign-in for public-site customer/partner accounts (app/accounts
+    # feature) — all optional, same "blank = not offered yet" pattern as
+    # SMTP above. Each provider's /accounts/oauth/{provider}/start route
+    # 501s with a clear message until its client id/secret are filled in.
+    google_client_id: str = ""
+    google_client_secret: str = ""
+    # Apple's "Sign in with Apple" uses a Services ID as the client id, plus
+    # a private key (Team ID + Key ID) to sign a client secret JWT per
+    # request rather than a static secret string.
+    apple_client_id: str = ""
+    apple_team_id: str = ""
+    apple_key_id: str = ""
+    apple_private_key: str = ""
+    facebook_client_id: str = ""
+    facebook_client_secret: str = ""
 
     # Outbound email (SMTP) — all optional. Left blank, app/email.py no-ops
     # instead of sending, so lead/booking creation keeps working before
@@ -28,6 +48,12 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     smtp_use_tls: bool = True
     email_from: str = "New World Courtage <devis@newworldcourtage.com>"
+
+    # IMAP — not read anywhere yet (nothing checks the inbox today); the
+    # mailbox's IMAP credentials are kept here so they're declared in one
+    # place if/when that's built, rather than only living in .env.
+    mail_imap_host: str = ""
+    mail_imap_port: int = 993
 
     @property
     def origins_list(self) -> list[str]:

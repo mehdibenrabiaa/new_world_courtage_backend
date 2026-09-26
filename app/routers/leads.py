@@ -6,16 +6,22 @@ import uuid
 from pathlib import Path
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session, joinedload
-from app.auth import require_permission
+from app.auth import require_permission, require_superadmin
 from app.config import settings
 from app.database import get_db
 from app.email import send_lead_confirmation_email
-from app.models import Lead, LeadAnswer, LeadContact, LeadDocument, LeadNote, LeadStatus, LeadTask, LeadType, Notification, User, UserRole
-from app.schemas import (
-    LeadCreate, LeadAssigneeOut, LeadContactOut, LeadListOut, LeadNoteCreate, LeadNoteOut, LeadNoteUpdate, LeadOut,
-    LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate, LeadDocumentOut,
+from app.models import (
+    Contact, Lead, LeadActivity, LeadAnswer, LeadContact, LeadDocument, LeadNote, LeadStatus, LeadTask, LeadType,
+    Notification, User, UserRole,
 )
+from app.schemas import (
+    LeadCreate, LeadActivityOut, LeadAssigneeOut, LeadContactOut, LeadListOut, LeadNoteCreate, LeadNoteOut,
+    LeadNoteUpdate, LeadOut, LeadStatsOut, ConsultantStatOut, LeadUpdate, LeadTaskCreate, LeadTaskOut, LeadTaskUpdate,
+    LeadTaskWithLeadOut, TaskLeadRef, LeadDocumentOut,
+)
+from app.test_data import generate_fake_garage_lead
 
 router = APIRouter(prefix="/leads", tags=["leads"])
 
@@ -50,6 +56,42 @@ def _notify_assigned(db: Session, lead: Lead, assignee: User, actor: User | None
         message=message,
         link=f"/dashboard/leads/{lead.id}",
     ))
+
+
+def _log_activity(
+    db: Session, lead_id: int, actor: User | None, action: str,
+    field: str | None = None, old_value: object = None, new_value: object = None,
+    description: str | None = None,
+) -> None:
+    """Appends one entry to a lead's activity timeline — not committed here,
+    piggybacks on the caller's own db.commit() same as _notify_assigned.
+    Values are stringified (enums via .value) so the row stays a plain,
+    always-renderable snapshot regardless of the field's real Python type."""
+    def _stringify(v: object) -> str | None:
+        if v is None:
+            return None
+        if hasattr(v, "value"):
+            return str(v.value)
+        return str(v)
+
+    db.add(LeadActivity(
+        lead_id=lead_id, actor_id=actor.id if actor else None, action=action,
+        field=field, old_value=_stringify(old_value), new_value=_stringify(new_value),
+        description=description,
+    ))
+
+
+def _find_duplicate(db: Session, lead: Lead) -> Lead | None:
+    """The earliest other non-deleted lead sharing this phone or email, if
+    any — used right after creating a new lead to flag (not block) likely
+    resubmissions. Phone is the more reliable signal (always present);
+    email is optional so it's only checked when set."""
+    q = db.query(Lead).filter(Lead.id != lead.id, Lead.deleted.is_(False))
+    if lead.email:
+        q = q.filter((Lead.phone == lead.phone) | (Lead.email == lead.email))
+    else:
+        q = q.filter(Lead.phone == lead.phone)
+    return q.order_by(Lead.created_at.asc()).first()
 
 
 def _lead_address(answers: list[dict]) -> str | None:
@@ -103,6 +145,16 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(lead)
 
+    _log_activity(db, lead.id, actor=None, action="created")
+    duplicate = _find_duplicate(db, lead)
+    if duplicate:
+        lead.duplicate_of_id = duplicate.id
+        _log_activity(
+            db, lead.id, actor=None, action="duplicate_detected",
+            description=f"Doublon possible de « {duplicate.name} » (#{duplicate.id}).",
+        )
+    db.commit()
+
     if assignee:
         _notify_assigned(db, lead, assignee, actor=None)
         db.commit()
@@ -120,6 +172,36 @@ def create_lead(payload: LeadCreate, db: Session = Depends(get_db)):
 
     lead.document_upload_token = upload_token
     return lead
+
+
+@router.post("/generate-test-data", status_code=201)
+def generate_test_data(count: int = 5, db: Session = Depends(get_db), user=Depends(require_superadmin)):
+    """Creates `count` fake "Assurance Garage" leads (realistic answers
+    shaped exactly like a real garagiste/devis submission — see
+    app/test_data.py) so the CRM's own views can be exercised without
+    hand-filling the public form or the "Nouveau lead" dialog repeatedly.
+    Superadmin-only: this writes real rows, same access level as user
+    management, not one of the delegable "leads" permissions."""
+    if not 1 <= count <= 50:
+        raise HTTPException(status_code=400, detail="count doit être entre 1 et 50.")
+    created_ids = []
+    for _ in range(count):
+        data = generate_fake_garage_lead()
+        lead = Lead(
+            type=LeadType.garage,
+            name=data["name"],
+            phone=data["phone"],
+            email=data["email"],
+            siret=data["siret"],
+            activite=data["activite"],
+            source="Données de test",
+        )
+        lead.answers = [LeadAnswer(**a) for a in data["answers"]]
+        db.add(lead)
+        db.flush()
+        created_ids.append(lead.id)
+    db.commit()
+    return {"created": len(created_ids), "ids": created_ids}
 
 
 @router.post("/{lead_id}/documents", response_model=LeadDocumentOut, status_code=201)
@@ -169,6 +251,7 @@ async def upload_lead_document(
         file_url=f"{settings.base_url}/uploads/leads/{lead.id}/{stored_filename}",
     )
     db.add(document)
+    _log_activity(db, lead.id, actor=None, action="document_uploaded", description=safe_label)
     db.commit()
     db.refresh(document)
     return document
@@ -276,6 +359,120 @@ def list_assignable_users(db: Session = Depends(get_db), user=Depends(view_leads
     return db.query(User).filter(User.active.is_(True)).order_by(User.name.asc()).all()
 
 
+@router.get("/tasks", response_model=list[LeadTaskWithLeadOut])
+def list_all_tasks(
+    completed: bool | None = Query(None),
+    assigned_to_id: int | None = Query(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(view_leads),
+):
+    """Every task across every lead this caller can see — backs the
+    "Tâches" sidebar section. A consultant only ever sees tasks on leads
+    assigned to them (same rule list_leads already applies); anyone else
+    sees every task, optionally narrowed to one consultant's via
+    `assigned_to_id` — that's how an admin sees "all the consultants'
+    tasks" instead of just their own."""
+    q = (
+        db.query(LeadTask)
+        .join(Lead, Lead.id == LeadTask.lead_id)
+        .options(joinedload(LeadTask.lead).joinedload(Lead.assigned_to))
+        .filter(Lead.deleted.is_(False))
+    )
+    if user.role == UserRole.consultant:
+        q = q.filter(Lead.assigned_to_id == user.id)
+    elif assigned_to_id is not None:
+        q = q.filter(Lead.assigned_to_id == assigned_to_id)
+    if completed is not None:
+        q = q.filter(LeadTask.completed == completed)
+    tasks = q.order_by(LeadTask.completed.asc(), LeadTask.due_date.asc()).all()
+    return [
+        LeadTaskWithLeadOut(
+            id=t.id, comment=t.comment, action=t.action, due_date=t.due_date,
+            completed=t.completed, created_at=t.created_at,
+            lead=TaskLeadRef(id=t.lead.id, name=t.lead.name),
+            assigned_to=t.lead.assigned_to,
+        )
+        for t in tasks
+    ]
+
+
+@router.get("/stats", response_model=LeadStatsOut)
+def get_lead_stats(db: Session = Depends(get_db), user=Depends(view_leads)):
+    """Aggregate KPIs for the dashboard — everything computed as grouped
+    SQL queries, not by fetching every lead and counting client-side."""
+    base = db.query(Lead).filter(Lead.deleted.is_(False))
+    if user.role == UserRole.consultant:
+        base = base.filter(Lead.assigned_to_id == user.id)
+
+    total_leads = base.count()
+    status_counts = dict(base.with_entities(Lead.status, func.count(Lead.id)).group_by(Lead.status).all())
+    by_status = {s.value: status_counts.get(s, 0) for s in LeadStatus}
+    converted = by_status.get(LeadStatus.converted.value, 0)
+    conversion_rate = round(100 * converted / total_leads, 1) if total_leads else 0.0
+
+    total_pipeline_value = base.filter(
+        Lead.status.in_([LeadStatus.new, LeadStatus.contacted, LeadStatus.qualified]),
+    ).with_entities(func.coalesce(func.sum(Lead.deal_value), 0.0)).scalar() or 0.0
+    converted_value = base.filter(Lead.status == LeadStatus.converted).with_entities(
+        func.coalesce(func.sum(Lead.deal_value), 0.0),
+    ).scalar() or 0.0
+
+    unread_contacts = db.query(Contact).filter(Contact.read.is_(False)).count()
+
+    by_consultant: list[ConsultantStatOut] = []
+    if user.role != UserRole.consultant:
+        rows = (
+            base.filter(Lead.assigned_to_id.isnot(None))
+            .with_entities(
+                Lead.assigned_to_id, User.name,
+                func.count(Lead.id),
+                func.sum(case((Lead.status == LeadStatus.converted, 1), else_=0)),
+                func.coalesce(func.sum(Lead.deal_value), 0.0),
+                func.coalesce(func.sum(case((Lead.status == LeadStatus.converted, Lead.deal_value), else_=0.0)), 0.0),
+            )
+            .join(User, User.id == Lead.assigned_to_id)
+            .group_by(Lead.assigned_to_id, User.name)
+            .all()
+        )
+        for consultant_id, name, count, converted_count, total_value, conv_value in rows:
+            converted_count = converted_count or 0
+            by_consultant.append(ConsultantStatOut(
+                consultant_id=consultant_id, name=name, total_leads=count, converted_leads=converted_count,
+                conversion_rate=round(100 * converted_count / count, 1) if count else 0.0,
+                total_value=float(total_value), converted_value=float(conv_value),
+            ))
+
+    return LeadStatsOut(
+        total_leads=total_leads, by_status=by_status, conversion_rate=conversion_rate,
+        total_pipeline_value=float(total_pipeline_value), converted_value=float(converted_value),
+        unread_contacts=unread_contacts, by_consultant=by_consultant,
+    )
+
+
+@router.get("/{lead_id}/activity", response_model=list[LeadActivityOut])
+def list_lead_activity(lead_id: int, db: Session = Depends(get_db), user=Depends(view_leads)):
+    # Hardcoded, not part of the configurable "leads" permission matrix —
+    # the activity timeline shows who did what (reassignments, other
+    # people's field edits), which is a level of visibility into other
+    # staff's actions a consultant isn't meant to have even though they
+    # can view/edit their own assigned leads.
+    if user.role == UserRole.consultant:
+        raise HTTPException(status_code=403, detail="Réservé aux administrateurs.")
+    lead = _lead_or_404(lead_id, db, user)
+    entries = (
+        db.query(LeadActivity).filter(LeadActivity.lead_id == lead.id)
+        .order_by(LeadActivity.created_at.desc()).all()
+    )
+    return [
+        LeadActivityOut(
+            id=e.id, actor_name=e.actor.name if e.actor else None, action=e.action,
+            field=e.field, old_value=e.old_value, new_value=e.new_value,
+            description=e.description, created_at=e.created_at,
+        )
+        for e in entries
+    ]
+
+
 @router.get("/{lead_id}", response_model=LeadOut)
 def get_lead(lead_id: int, db: Session = Depends(get_db), user=Depends(view_leads)):
     return _lead_or_404(lead_id, db, user)
@@ -290,15 +487,29 @@ def update_lead(lead_id: int, payload: LeadUpdate, db: Session = Depends(get_db)
         if user.role not in CAN_ASSIGN:
             raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent réassigner un lead.")
         if payload.unassign:
+            previous = lead.assigned_to.name if lead.assigned_to else None
             lead.assigned_to_id = None
+            if previous:
+                _log_activity(db, lead.id, user, "unassigned", description=f"Désassigné de {previous}.")
         else:
             assignee = db.get(User, payload.assigned_to_id)
             if not assignee or not assignee.active:
                 raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+            previous = lead.assigned_to.name if lead.assigned_to else None
             lead.assigned_to_id = assignee.id
             _notify_assigned(db, lead, assignee, actor=user)
+            _log_activity(
+                db, lead.id, user, "reassigned", field="assigned_to",
+                old_value=previous, new_value=assignee.name,
+            )
 
+    # One activity entry per field that actually changed, logged before the
+    # values are overwritten — lets the timeline show real before/after
+    # pairs instead of just "something changed".
     for field, value in updates.items():
+        old_value = getattr(lead, field)
+        if old_value != value:
+            _log_activity(db, lead.id, user, "field_changed", field=field, old_value=old_value, new_value=value)
         setattr(lead, field, value)
 
     # Keep the LeadContact snapshot (see models.py) in sync with whichever of
@@ -324,6 +535,7 @@ def delete_lead(lead_id: int, db: Session = Depends(get_db), user=Depends(delete
     answers) in the DB — nothing is ever permanently lost from here."""
     lead = _lead_or_404(lead_id, db, user)
     lead.deleted = True
+    _log_activity(db, lead.id, user, "deleted")
     db.commit()
 
 
@@ -334,6 +546,7 @@ def create_note(lead_id: int, payload: LeadNoteCreate, db: Session = Depends(get
     lead = _lead_or_404(lead_id, db, user)
     note = LeadNote(lead_id=lead.id, **payload.model_dump())
     db.add(note)
+    _log_activity(db, lead.id, user, "note_added")
     db.commit()
     db.refresh(note)
     return note
@@ -356,6 +569,7 @@ def delete_note(note_id: int, db: Session = Depends(get_db), user=Depends(edit_l
     note = db.get(LeadNote, note_id)
     if not note or not _visible(note.lead, user):
         raise HTTPException(status_code=404, detail="Note introuvable.")
+    _log_activity(db, note.lead_id, user, "note_deleted")
     db.delete(note)
     db.commit()
 
@@ -367,6 +581,7 @@ def create_task(lead_id: int, payload: LeadTaskCreate, db: Session = Depends(get
     lead = _lead_or_404(lead_id, db, user)
     task = LeadTask(lead_id=lead.id, **payload.model_dump())
     db.add(task)
+    _log_activity(db, lead.id, user, "task_added", description=task.action)
     db.commit()
     db.refresh(task)
     return task
@@ -382,7 +597,10 @@ def update_task(task_id: int, payload: LeadTaskUpdate, db: Session = Depends(get
     # API call, not just the disabled inputs in the UI.
     if task.completed:
         raise HTTPException(status_code=409, detail="Cette tâche est terminée et ne peut plus être modifiée.")
-    for field, value in payload.model_dump(exclude_none=True).items():
+    updates = payload.model_dump(exclude_none=True)
+    if updates.get("completed") is True:
+        _log_activity(db, task.lead_id, user, "task_completed", description=task.action)
+    for field, value in updates.items():
         setattr(task, field, value)
     db.commit()
     db.refresh(task)
@@ -394,5 +612,6 @@ def delete_task(task_id: int, db: Session = Depends(get_db), user=Depends(edit_l
     task = db.get(LeadTask, task_id)
     if not task or not _visible(task.lead, user):
         raise HTTPException(status_code=404, detail="Tâche introuvable.")
+    _log_activity(db, task.lead_id, user, "task_deleted", description=task.action)
     db.delete(task)
     db.commit()

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from app.auth import hash_password, require_superadmin
+from app.auth import hash_password, require_superadmin, revoke_all_refresh_tokens
 from app.database import get_db
-from app.models import User, UserRole
+from app.models import ConsultantBooking, ConsultantUnavailability, User, UserRole
 from app.schemas import UserCreate, UserOut, UserUpdate
 
 router = APIRouter(prefix="/users", tags=["users"], dependencies=[Depends(require_superadmin)])
@@ -65,7 +65,29 @@ def update_user(
 
     db.commit()
     db.refresh(user)
+
+    # A changed password or a deactivation should kill any session already
+    # in progress, not just block new logins — otherwise a stolen refresh
+    # token keeps working right through the "fix". Done after commit so it
+    # never rolls back the actual account change if this part somehow fails.
+    if payload.password or deactivating:
+        revoke_all_refresh_tokens(db, user.id)
+
     return user
+
+
+@router.post("/{user_id}/revoke-sessions", status_code=204)
+def revoke_sessions(
+    user_id: int, db: Session = Depends(get_db), current_user: User = Depends(require_superadmin),
+):
+    """"Force logout" — revokes every active refresh token for this user
+    without touching their password or account status. For the case where
+    you want them signed out right now (lost device, offboarding in
+    progress) but aren't otherwise changing anything about the account."""
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    revoke_all_refresh_tokens(db, user.id)
 
 
 @router.delete("/{user_id}", status_code=204)
@@ -87,6 +109,27 @@ def delete_user(
         ).count()
         if remaining == 0:
             raise HTTPException(status_code=409, detail="Impossible : il doit toujours rester au moins un super-administrateur actif.")
+
+    # consultant_bookings/consultant_unavailabilities have no ON DELETE
+    # behavior on their consultant_id FK — deleting a user who still has
+    # either would silently orphan those rows (exactly what happened
+    # earlier: reallocated-away test consultants left behind bookings that
+    # rendered as "Consultant supprimé" until someone noticed and cleaned
+    # the table up by hand). Blocking here instead of cascading, since a
+    # cascade would destroy real appointment history — reallocate their
+    # bookings and clear their calendar blocks first.
+    booking_count = db.query(ConsultantBooking).filter(ConsultantBooking.consultant_id == user.id).count()
+    if booking_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Impossible : ce compte a encore {booking_count} rendez-vous. Réaffectez-les avant de supprimer le compte.",
+        )
+    block_count = db.query(ConsultantUnavailability).filter(ConsultantUnavailability.consultant_id == user.id).count()
+    if block_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail="Impossible : ce compte a encore des blocages de calendrier. Videz son calendrier avant de supprimer le compte.",
+        )
 
     db.delete(user)
     db.commit()

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Any
-from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum, ForeignKey, UniqueConstraint
+from sqlalchemy import String, Text, DateTime, JSON, Enum as SAEnum, ForeignKey, UniqueConstraint, Index, Float
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 import enum
@@ -26,6 +26,7 @@ class PermissionResource(str, enum.Enum):
     guides = "guides"
     authors = "authors"
     media = "media"
+    consultants = "consultants"
 
 
 class PermissionAction(str, enum.Enum):
@@ -60,6 +61,16 @@ class LeadType(str, enum.Enum):
 
 class Lead(Base):
     __tablename__ = "leads"
+    __table_args__ = (
+        # Plain btree indexes — help the exact-match duplicate-detection
+        # query on every write and (on Postgres) the ILIKE search on every
+        # read; on SQLite they still speed up the exact-match half. A real
+        # substring-search speedup (GIN + pg_trgm) is added separately in
+        # main.py's Postgres-only migration block, since it needs an
+        # extension SQLite has no equivalent for.
+        Index("ix_leads_phone", "phone"),
+        Index("ix_leads_email", "email"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     type: Mapped[LeadType] = mapped_column(SAEnum(LeadType))
@@ -81,6 +92,17 @@ class Lead(Base):
 
     # Meta
     source: Mapped[str | None] = mapped_column(String(120), nullable=True)  # page URL or campaign
+    # Estimated/actual premium value — optional, set by a consultant once
+    # they have a figure. Powers pipeline-value reporting; NULL just means
+    # "not estimated yet", not zero.
+    deal_value: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Set at creation if an existing lead already shares this phone or email
+    # (see create_lead) — a soft flag, not a block, since the public form
+    # shouldn't refuse a legitimate resubmission. Self-referential, ON
+    # DELETE SET NULL so removing the original doesn't cascade.
+    duplicate_of_id: Mapped[int | None] = mapped_column(
+        ForeignKey("leads.id", ondelete="SET NULL"), nullable=True
+    )
     # "Deleting" a lead from the CRM only hides it (excluded from list_leads) —
     # it stays in the DB so nothing is ever lost to an accidental click.
     deleted: Mapped[bool] = mapped_column(default=False)
@@ -114,7 +136,12 @@ class Lead(Base):
     documents: Mapped[list["LeadDocument"]] = relationship(
         back_populates="lead", cascade="all, delete-orphan", order_by="LeadDocument.created_at.desc()"
     )
+    activity: Mapped[list["LeadActivity"]] = relationship(
+        back_populates="lead", cascade="all, delete-orphan", order_by="LeadActivity.created_at.desc()",
+        foreign_keys="LeadActivity.lead_id",
+    )
     assigned_to: Mapped["User | None"] = relationship(foreign_keys=[assigned_to_id], passive_deletes=True)
+    duplicate_of: Mapped["Lead | None"] = relationship(remote_side=[id], foreign_keys=[duplicate_of_id])
 
 
 class LeadAnswer(Base):
@@ -216,6 +243,37 @@ class LeadDocument(Base):
     lead: Mapped["Lead"] = relationship(back_populates="documents")
 
 
+class LeadActivity(Base):
+    """One entry in a lead's unified activity timeline — a status/field
+    change, a note/task/document being added, a call being booked, etc.
+    Replaces "reconstructing history by comparing timestamps across three
+    separate tables" with a single, actor-attributed, chronological log.
+    `actor_id` is NULL for actions with no logged-in user behind them (the
+    public site creating a lead) — see routers/leads.py's _log_activity."""
+
+    __tablename__ = "lead_activities"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    lead_id: Mapped[int] = mapped_column(ForeignKey("leads.id", ondelete="CASCADE"), index=True)
+    actor_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    action: Mapped[str] = mapped_column(String(50))
+    # For a field-change entry (action="field_changed"): which field, and
+    # its before/after values, stringified — enough to render "Statut :
+    # Nouveau → Contacté" without needing to know each field's real type.
+    field: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    old_value: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    new_value: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # A ready-to-display sentence for actions that aren't a simple field
+    # change (e.g. "a uploadé le document Carte grise").
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    lead: Mapped["Lead"] = relationship(back_populates="activity", foreign_keys=[lead_id])
+    actor: Mapped["User | None"] = relationship(foreign_keys=[actor_id])
+
+
 class GuideStatus(str, enum.Enum):
     brouillon = "Brouillon"
     publie = "Publié"
@@ -304,35 +362,21 @@ class Question(Base):
     questionnaire: Mapped["Questionnaire"] = relationship(back_populates="questions")
 
 
-class Consultant(Base):
-    """An advisor who can take a post-submission callback booking (see
-    ConsultantBooking below). A timeframe is only offered to a prospect on
-    the confirmation screen if at least one active consultant is free then."""
-
-    __tablename__ = "consultants"
-
-    id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    name: Mapped[str] = mapped_column(String(120))
-    email: Mapped[str | None] = mapped_column(String(120), nullable=True)
-    active: Mapped[bool] = mapped_column(default=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
-    )
-
-    bookings: Mapped[list["ConsultantBooking"]] = relationship(
-        back_populates="consultant", cascade="all, delete-orphan"
-    )
-
-
 class ConsultantBooking(Base):
-    """One consultant's claim on a date/time slot. `lead_id` goes NULL if the
-    lead is later hard-deleted (same pattern as LeadContact) — the booking
-    itself, and the consultant's calendar, still stand."""
+    """One consultant's claim on a date/time slot. A "consultant" is just a
+    User with role=consultant — there used to be a separate `Consultant`
+    table loosely linked to a login via an optional FK, which meant a
+    consultant could exist as two different, only-sometimes-connected
+    accounts; `consultant_id` now points straight at users.id, so
+    "consultant" is only ever a role, never a second identity.
+    `lead_id` goes NULL if the lead is later hard-deleted (same pattern as
+    LeadContact) — the booking itself, and the consultant's calendar, still
+    stand."""
 
     __tablename__ = "consultant_bookings"
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
-    consultant_id: Mapped[int] = mapped_column(ForeignKey("consultants.id"))
+    consultant_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
     lead_id: Mapped[int | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"), nullable=True, index=True)
     date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
     time: Mapped[str] = mapped_column(String(5))   # HH:MM
@@ -340,7 +384,28 @@ class ConsultantBooking(Base):
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
 
-    consultant: Mapped["Consultant"] = relationship(back_populates="bookings")
+    consultant: Mapped["User"] = relationship()
+
+
+class ConsultantUnavailability(Base):
+    """A timeframe a user (consultant or otherwise — anyone can track their
+    own time off, but only a role=consultant, active User is ever offered
+    to a prospect, see get_availability) has deliberately blocked off —
+    e.g. a sick day — distinct from ConsultantBooking, which only records
+    slots a client has actually booked. `time` NULL means the whole day is
+    blocked; a specific "HH:MM" blocks just that one slot."""
+
+    __tablename__ = "consultant_unavailabilities"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    consultant_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    time: Mapped[str | None] = mapped_column(String(5), nullable=True)  # HH:MM, or NULL for the whole day
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    consultant: Mapped["User"] = relationship()
 
 
 class User(Base):
@@ -360,9 +425,43 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255))
     role: Mapped[UserRole] = mapped_column(SAEnum(UserRole), default=UserRole.consultant)
     active: Mapped[bool] = mapped_column(default=True)
+    # Bumped whenever every session should be killed *right now* — force
+    # logout, a password change, refresh-token reuse-detection (see
+    # app/auth.py's revoke_all_refresh_tokens). Revoking the refresh tokens
+    # alone still leaves an already-issued access token usable for up to
+    # ACCESS_TOKEN_TTL (30 min), since it's a self-contained JWT nothing
+    # checks against the DB per request — get_current_user compares this
+    # against the token's own "iat" so a token issued before this moment
+    # stops working immediately, not just once it naturally expires.
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class RefreshToken(Base):
+    """A long-lived, revocable credential issued alongside a short-lived
+    JWT access token (see app/auth.py) — the access token alone can't be
+    revoked before it expires, which is what this exists to fix. Only the
+    SHA-256 hash of the actual token is stored, same reasoning as
+    password_hash: a DB read alone should never hand out something usable
+    for login. `rotated_to_id` chains a token to whatever replaced it, so
+    reusing an already-rotated token (a stolen-token symptom) can be
+    detected and answered by revoking the whole chain."""
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    user: Mapped["User"] = relationship()
 
 
 class RolePermission(Base):
@@ -415,3 +514,85 @@ class Contact(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class AccountType(str, enum.Enum):
+    """The public site's own customer-facing accounts — entirely separate
+    from User (CRM staff). "client" gets their own devis/leads status,
+    "partenaire" gets a referral code/link."""
+    client = "client"
+    partenaire = "partenaire"
+
+
+class OAuthProvider(str, enum.Enum):
+    google = "google"
+    apple = "apple"
+    facebook = "facebook"
+
+
+class Account(Base):
+    """A public-site customer or partner account. password_hash is nullable
+    because an OAuth-only account (signed up via Google/Apple/Facebook)
+    never sets one — see app/account_auth.py."""
+
+    __tablename__ = "accounts"
+    __table_args__ = (
+        UniqueConstraint("oauth_provider", "oauth_subject", name="uq_account_oauth_identity"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    type: Mapped[AccountType] = mapped_column(SAEnum(AccountType))
+    # Only ever set for type=partenaire — their shareable referral code.
+    referral_code: Mapped[str | None] = mapped_column(String(20), unique=True, index=True, nullable=True)
+    oauth_provider: Mapped[OAuthProvider | None] = mapped_column(SAEnum(OAuthProvider), nullable=True)
+    oauth_subject: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    active: Mapped[bool] = mapped_column(default=True)
+    # Same immediate-revocation mechanism as User.sessions_revoked_at (see
+    # app/account_auth.py) — bumped on password change / "log out everywhere".
+    sessions_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+
+class AccountRefreshToken(Base):
+    """Mirrors RefreshToken, scoped to Account instead of User — kept as a
+    separate table (rather than reusing RefreshToken) so a leaked customer
+    session can never be confused with, or accidentally granted, staff
+    access."""
+
+    __tablename__ = "account_refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    account: Mapped["Account"] = relationship()
+
+
+class AccountPasswordResetToken(Base):
+    """A single-use, short-lived token emailed to an account for the
+    "mot de passe oublié" flow — only the hash is stored, same reasoning as
+    password_hash/RefreshToken.token_hash."""
+
+    __tablename__ = "account_password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True, index=True)
+    account_id: Mapped[int] = mapped_column(ForeignKey("accounts.id", ondelete="CASCADE"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )
+
+    account: Mapped["Account"] = relationship()

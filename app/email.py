@@ -81,3 +81,49 @@ def send_booking_confirmation_email(name: str, email: str, iso_date: str, time: 
       <strong>{format_date_fr(iso_date)}</strong> à <strong>{time}</strong>.</p>
     """
     return send_email(email, "Votre rendez-vous est confirmé — New World Courtage", _wrap("Rendez-vous confirmé", body))
+
+
+def send_account_welcome_email(name: str, email: str, account_type: str) -> bool:
+    space_label = "espace partenaire" if account_type == "partenaire" else "espace client"
+    body = f"""
+      <p>Bonjour {name},</p>
+      <p>Votre compte New World Courtage a bien été créé. Vous pouvez désormais accéder à votre
+      {space_label} pour {"suivre vos demandes de devis" if account_type != "partenaire" else "retrouver votre lien de parrainage"}.</p>
+    """
+    return send_email(email, "Bienvenue chez New World Courtage", _wrap("Compte créé", body))
+
+
+def send_account_password_reset_email(name: str, email: str, reset_url: str) -> bool:
+    body = f"""
+      <p>Bonjour {name},</p>
+      <p>Vous avez demandé la réinitialisation de votre mot de passe. Ce lien est valable 1 heure :</p>
+      <p><a href="{reset_url}" style="color: #0f2a4a;">Réinitialiser mon mot de passe</a></p>
+      <p>Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.</p>
+    """
+    return send_email(email, "Réinitialisation de votre mot de passe — New World Courtage", _wrap("Mot de passe oublié", body))
+
+
+# Sent to the OLD email address after an email/password change succeeds —
+# a tripwire, not a confirmation: the account owner sees it even if the
+# change wasn't actually them (e.g. a leaked session token was used to
+# hijack the account), since it's the one address the attacker doesn't
+# control. See routers/accounts.py's update_me/change_password.
+def send_account_email_changed_notice(name: str, old_email: str, new_email: str) -> bool:
+    body = f"""
+      <p>Bonjour {name},</p>
+      <p>L'adresse email de votre compte New World Courtage vient d'être changée pour
+      <strong>{new_email}</strong>.</p>
+      <p>Si vous êtes à l'origine de ce changement, vous pouvez ignorer cet email.
+      Si ce n'est pas le cas, contactez-nous immédiatement à devis@newworldcourtage.com.</p>
+    """
+    return send_email(old_email, "Votre adresse email a été modifiée — New World Courtage", _wrap("Adresse email modifiée", body))
+
+
+def send_account_password_changed_notice(name: str, email: str) -> bool:
+    body = f"""
+      <p>Bonjour {name},</p>
+      <p>Le mot de passe de votre compte New World Courtage vient d'être changé.</p>
+      <p>Si vous êtes à l'origine de ce changement, vous pouvez ignorer cet email.
+      Si ce n'est pas le cas, contactez-nous immédiatement à devis@newworldcourtage.com.</p>
+    """
+    return send_email(email, "Votre mot de passe a été modifié — New World Courtage", _wrap("Mot de passe modifié", body))
