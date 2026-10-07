@@ -55,8 +55,8 @@ def send_email(to: str, subject: str, html_body: str) -> bool:
 
 def _wrap(title: str, body_html: str) -> str:
     return f"""
-    <div style="font-family: Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #111111;">
-      <h2 style="color: #0f2a4a; margin-bottom: 16px;">{title}</h2>
+    <div style="font-family: 'Google Sans Flex', Arial, Helvetica, sans-serif; max-width: 480px; margin: 0 auto; color: #262626;">
+      <h2 style="color: #062499; margin-bottom: 16px;">{title}</h2>
       {body_html}
       <p style="margin-top: 32px; font-size: 12px; color: #888888;">
         New World Courtage — 07 45 89 18 65 — devis@newworldcourtage.com
@@ -97,7 +97,7 @@ def send_account_password_reset_email(name: str, email: str, reset_url: str) -> 
     body = f"""
       <p>Bonjour {name},</p>
       <p>Vous avez demandé la réinitialisation de votre mot de passe. Ce lien est valable 1 heure :</p>
-      <p><a href="{reset_url}" style="color: #0f2a4a;">Réinitialiser mon mot de passe</a></p>
+      <p><a href="{reset_url}" style="color: #062499;">Réinitialiser mon mot de passe</a></p>
       <p>Si vous n'êtes pas à l'origine de cette demande, vous pouvez ignorer cet email.</p>
     """
     return send_email(email, "Réinitialisation de votre mot de passe — New World Courtage", _wrap("Mot de passe oublié", body))
