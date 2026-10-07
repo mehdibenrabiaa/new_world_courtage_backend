@@ -56,6 +56,9 @@ with engine.connect() as _conn:
     if "image_url" not in _existing:
         _conn.execute(text("ALTER TABLE guides ADD COLUMN image_url TEXT"))
         _conn.commit()
+    if "subtitle" not in _existing:
+        _conn.execute(text("ALTER TABLE guides ADD COLUMN subtitle TEXT"))
+        _conn.commit()
 
     _existing_leads = [c["name"] for c in inspect(engine).get_columns("leads")]
     if "deleted" not in _existing_leads:

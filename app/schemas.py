@@ -272,6 +272,7 @@ class GuideCreate(BaseModel):
     category: str
     status: GuideStatus = GuideStatus.brouillon
     category_href: str | None = None
+    subtitle: str | None = None
     intro: str | None = None
     author_name: str | None = None
     author_avatar: str | None = None
@@ -289,6 +290,7 @@ class GuideUpdate(BaseModel):
     category: str | None = None
     status: GuideStatus | None = None
     category_href: str | None = None
+    subtitle: str | None = None
     intro: str | None = None
     author_name: str | None = None
     author_avatar: str | None = None
@@ -307,6 +309,7 @@ class GuideOut(BaseModel):
     category: str
     status: GuideStatus
     category_href: str | None
+    subtitle: str | None = None
     intro: str | None
     author_name: str | None
     author_avatar: str | None

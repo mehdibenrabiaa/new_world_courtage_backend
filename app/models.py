@@ -298,6 +298,8 @@ class Guide(Base):
 
     # Article hero fields
     category_href: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    # Short line shown under the title in the article hero.
+    subtitle: Mapped[str | None] = mapped_column(Text, nullable=True)
     intro: Mapped[str | None] = mapped_column(Text, nullable=True)
     author_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     author_avatar: Mapped[str | None] = mapped_column(String(300), nullable=True)
