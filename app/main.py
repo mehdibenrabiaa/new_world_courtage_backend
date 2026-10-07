@@ -135,6 +135,24 @@ with engine.connect() as _conn:
 # login gets a brand-new consultant-role account created for it (so its
 # booking history isn't lost) with an unusable random password until a
 # superadmin resets it. One-time per deploy — the table is gone afterward.
+def _read_old_consultants(session):
+    """Rows of the legacy "consultants" table as (id, name, email, active, user_id).
+
+    Older deployments created that table before some columns existed (e.g. no
+    user_id link to a login, or no active flag), so only the columns actually
+    present are selected; a missing user_id means "not linked to a login" and a
+    missing active flag means the consultant is active.
+    """
+    columns = {column["name"] for column in inspect(session.get_bind()).get_columns("consultants")}
+    defaults = {"name": None, "email": None, "active": True, "user_id": None}
+    selected = ["id"] + [name for name in defaults if name in columns]
+    rows = session.execute(text(f"SELECT {', '.join(selected)} FROM consultants")).mappings().all()
+    return [
+        (row["id"], *(row[name] if name in columns else default for name, default in defaults.items()))
+        for row in rows
+    ]
+
+
 if inspect(engine).has_table("consultants"):
     if engine.dialect.name == "postgresql":
         with engine.connect() as _conn:
@@ -143,7 +161,7 @@ if inspect(engine).has_table("consultants"):
             _conn.commit()
 
     with Session(engine) as _session:
-        _old_consultants = _session.execute(text("SELECT id, name, email, active, user_id FROM consultants")).all()
+        _old_consultants = _read_old_consultants(_session)
         _taken_usernames = {row[0] for row in _session.query(User.username)}
         # Phase 1: resolve every old consultant id to its final new user id
         # (creating an account where needed) *before* touching
