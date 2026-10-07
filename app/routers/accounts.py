@@ -9,7 +9,7 @@ from app import oauth
 from app.account_auth import (
     consume_password_reset_token, create_account_access_token, create_password_reset_token,
     generate_referral_code, get_current_account, hash_password, issue_account_refresh_token,
-    revoke_account_refresh_token, rotate_account_refresh_token, verify_password,
+    revoke_account_refresh_token, revoke_all_account_refresh_tokens, rotate_account_refresh_token, verify_password,
 )
 from app.config import settings
 from app.database import get_db
@@ -84,6 +84,13 @@ def refresh(payload: AccountRefreshRequest, user_agent: str | None = Header(defa
 @router.post("/logout", status_code=204)
 def logout(payload: AccountRefreshRequest, db: Session = Depends(get_db)):
     revoke_account_refresh_token(db, payload.refresh_token)
+
+
+@router.post("/me/logout-all", status_code=204)
+def logout_all(current_account: Account = Depends(get_current_account), db: Session = Depends(get_db)):
+    """Sign out on every device: revokes all refresh tokens and, through
+    sessions_revoked_at, rejects every access token issued before now."""
+    revoke_all_account_refresh_tokens(db, current_account.id)
 
 
 @router.get("/me", response_model=AccountOut)

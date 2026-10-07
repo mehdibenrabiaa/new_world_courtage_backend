@@ -11,7 +11,9 @@ from app.database import get_db
 from app.models import Account, AccountPasswordResetToken, AccountRefreshToken, AccountType
 
 ALGORITHM = "HS256"
-ACCESS_TOKEN_TTL = timedelta(minutes=30)
+# Short-lived on purpose: a token left in a browser after logout dies quickly;
+# active users don't notice since the frontend renews it with the refresh token.
+ACCESS_TOKEN_TTL = timedelta(minutes=15)
 REFRESH_TOKEN_TTL = timedelta(days=30)
 RESET_TOKEN_TTL = timedelta(hours=1)
 

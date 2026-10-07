@@ -226,6 +226,9 @@ if inspect(engine).has_table("consultants"):
 if engine.dialect.name == "postgresql":
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as _conn:
         _conn.execute(text("ALTER TYPE leadtype ADD VALUE IF NOT EXISTS 'garage'"))
+        _conn.execute(text("ALTER TYPE leadtype ADD VALUE IF NOT EXISTS 'moto'"))
+        _conn.execute(text("ALTER TYPE leadtype ADD VALUE IF NOT EXISTS 'auto'"))
+        _conn.execute(text("ALTER TYPE leadtype ADD VALUE IF NOT EXISTS 'risques_aggraves'"))
         # "consultants" (reallocating a booked call between consultants,
         # managing consultant profiles/calendars) is a newly added
         # PermissionResource member — same reasoning as leadtype above.

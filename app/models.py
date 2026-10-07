@@ -47,16 +47,24 @@ class LeadStatus(str, enum.Enum):
 class LeadType(str, enum.Enum):
     """A lead's category — matches the guide categories used across the site
     (see the CRM's lib/categories.ts, which is the source of truth for the
-    exact wording)."""
-    flotte_transport = "Assurance Flotte & Transport"
+    exact wording).
+
+    The CRM only offers the products sold today (auto, moto, risques
+    aggravés, taxi, VTC, garage, général); the others stay here so leads
+    created with them before still load."""
+    auto = "Assurance Auto"
+    moto = "Assurance Moto"
+    risques_aggraves = "Assurance Risques aggravés"
     taxi = "Assurance Taxi"
-    ambulance = "Assurance Ambulance"
     vtc = "Assurance VTC"
-    pro_auto = "Assurance Pro de l'auto"
     garage = "Assurance Garage"
+    general = "Assurance Général"
+    # No longer sold:
+    flotte_transport = "Assurance Flotte & Transport"
+    ambulance = "Assurance Ambulance"
+    pro_auto = "Assurance Pro de l'auto"
     construction = "Assurance Construction"
     immobilier = "Assurance Immobilier"
-    general = "Assurance Général"
 
 
 class Lead(Base):
